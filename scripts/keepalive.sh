@@ -5,8 +5,8 @@
 set -euo pipefail
 
 TOKEN="${1:?Usage: $0 <token> [base_url] [model]}"
-BASE_URL="${2:-https://a-ocnfniawgw.cn-shanghai.fcapp.run}"
-MODEL="${3:-opus[1m]}"
+BASE_URL="${2:-https://anyrouter.top}"
+MODEL="${3:-claude-opus-4-8[1m]}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROMPTS_FILE="$SCRIPT_DIR/prompts.txt"

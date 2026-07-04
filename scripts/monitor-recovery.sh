@@ -8,8 +8,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # --- Configuration ---
-BASE_URL="${BASE_URL:-https://a-ocnfniawgw.cn-shanghai.fcapp.run}"
-MODEL="${MODEL:-opus[1m]}"
+BASE_URL="${BASE_URL:-https://anyrouter.top}"
+MODEL="${MODEL:-claude-opus-4-8[1m]}"
 POLL_INTERVAL="${POLL_INTERVAL:-1800}"          # 30 minutes between rounds
 MAX_DURATION_SEC="${MAX_DURATION_SEC:-21500}"   # ~5h58m (just under 6h)
 QQ_EMAIL="${QQ_EMAIL:-}"
