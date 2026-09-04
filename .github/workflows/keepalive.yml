@@ -15,7 +15,7 @@ on:
       model:
         description: 'Claude model for health checks'
         required: false
-        default: 'claude-opus-4-8[1m]'
+        default: 'claude-opus-5[1m]'
 
 # Prevent concurrent runs stacking up
 concurrency:
@@ -42,7 +42,7 @@ jobs:
         env:
           ANYROUTER_TOKENS: ${{ secrets.ANYROUTER_TOKENS }}
           BASE_URL: ${{ github.event.inputs.base_url || 'https://anyrouter.top' }}
-          MODEL: ${{ github.event.inputs.model || 'claude-opus-4-8[1m]' }}
+          MODEL: ${{ github.event.inputs.model || 'claude-opus-5[1m]' }}
           QQ_EMAIL: ${{ secrets.QQ_EMAIL }}
           QQ_SMTP_AUTH_CODE: ${{ secrets.QQ_SMTP_AUTH_CODE }}
           CI: "true"
