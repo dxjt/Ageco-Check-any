@@ -84,31 +84,25 @@ EOF
         echo "  (SMTP_DEBUG: printing the raw SMTP conversation)"
     fi
 
-    local curl_exit=0
-    curl -sS --ssl-reqd --fail-with-body ${curl_opts[@]+"${curl_opts[@]}"} \
-        --url "smtps://smtp.qq.com:465" \
-        --user "$QQ_EMAIL:$QQ_SMTP_AUTH_CODE" \
-        --login-options "AUTH=LOGIN" \
-        --mail-from "$QQ_EMAIL" \
-        --mail-rcpt "$QQ_EMAIL" \
-        --upload-file "$mail_file" \
-        || curl_exit=$?
-
-    # QQ Mail rejects "MAIL FROM:<...> SIZE=n" with 502 Invalid input; curl adds
-    # that SIZE parameter only when the upload size is known, so retry by
-    # streaming the same message from stdin.
-    if [ "$curl_exit" -ne 0 ]; then
-        echo "  Retrying without the SIZE parameter (streaming from stdin) ..."
+    local curl_exit=0 url
+    # Try the implicit-TLS port first, then the STARTTLS port: some networks (and
+    # some QQ front-ends) reject one but accept the other.
+    for url in "smtps://smtp.qq.com:465" "smtp://smtp.qq.com:587"; do
         curl_exit=0
         curl -sS --ssl-reqd --fail-with-body ${curl_opts[@]+"${curl_opts[@]}"} \
-            --url "smtps://smtp.qq.com:465" \
+            --url "$url" \
             --user "$QQ_EMAIL:$QQ_SMTP_AUTH_CODE" \
             --login-options "AUTH=LOGIN" \
             --mail-from "$QQ_EMAIL" \
             --mail-rcpt "$QQ_EMAIL" \
             --upload-file - < "$mail_file" \
             || curl_exit=$?
-    fi
+        if [ "$curl_exit" -eq 0 ]; then
+            break
+        fi
+        echo "  Send via ${url} failed (curl exit: $curl_exit)"
+    done
+
     rm -f "$mail_file"
     if [ "$curl_exit" -eq 0 ]; then
         echo "  Email sent to $QQ_EMAIL"
