@@ -18,7 +18,8 @@ Anyrouter 的调度策略疑似为**账号级先来先用**。如果账号长时
 
 - 每天 **UTC 18:00（北京时间 02:00）** 启动一个 GitHub Actions 容器
 - 容器内部每 **50 分钟** 轮询一遍所有 token（避免 6 小时限制）
-- 每个 token 发送一条随机的真实工程提问：默认用 `curl` 直连 `/v1/responses`，Claude 模型则用 `claude -p` 模式
+- 每个 token 发送一条随机轻量探针（默认 20 条，见 `scripts/prompts.txt`）：默认用 `curl` 直连 `/v1/responses`，Claude 模型则用 `claude -p` 模式
+- 请求间隔可自定义（Actions 的 `interval` 输入 / `REQUEST_INTERVAL_SEC`），见「Prompt 池与请求间隔」
 - 在接近 6 小时限制时自动发送汇总报告邮件
 - 可选通过 QQ 邮箱接收最终报告
 
@@ -62,7 +63,7 @@ sk-ant-xxx333
 | 保活（单次） | Actions → Anyrouter Keepalive (Once) → Run workflow |
 | 恢复监控 | Actions → Anyrouter Recovery Monitor → Run workflow |
 
-**恢复监控**在手动触发时可自定义 `base_url`、`model` 和 `protocol`，默认使用 `gpt-6-astra`（Responses 协议）。
+三个工作流在手动触发时都可自定义 `base_url`、`model`、`protocol` 和 `interval`（请求间隔秒数），默认使用 `gpt-6-astra`（Responses 协议）。
 
 ## 模型与协议
 
@@ -83,6 +84,49 @@ sk-ant-xxx333
 - `BASE_URL` 可写成 `https://relay.example.com`、`https://relay.example.com/v1` 或完整端点，脚本都会补全成 `/v1/responses`（或 `/v1/chat/completions`），不会重复拼接。
 - 只要响应里没有 assistant 内容（例如返回 `{"error": ...}`），该 token 即判定为不可用；失败行的 `relay error:` 会带上中转站返回的原始错误。
 - 中转站返回 `{"error":"当前 API 不支持所选模型 xxx"}` 说明该站点没有这个模型：先用 `bash scripts/list-models.sh <token> [base_url]` 查出它实际接受的 id，或把 `BASE_URL` 换成真正提供该模型的站点。
+
+## Prompt 池与请求间隔
+
+### Prompt 池
+
+每次请求都会从池子里随机挑一条发送，池子由 `PROMPTS_FILE` 决定：
+
+| 文件 | 内容 |
+|---|---|
+| `scripts/prompts.txt`（默认） | 20 条轻量探针，回复只要 1 个字符到一行，token 消耗最低、返回最快 |
+| `scripts/prompts-engineering.txt` | 原来的 65 条工程提问池，想换回工程问题就用 `PROMPTS_FILE` 指定 |
+
+池子文件每行一条 prompt，空行和以 `#` 开头的行会被忽略。相对路径先按仓库根目录解析，再按当前目录解析。
+
+```bash
+# 换回工程提问池
+PROMPTS_FILE=scripts/prompts-engineering.txt bash scripts/keepalive.sh "$TOKEN"
+
+# 用自己写的池子（绝对路径或相对路径都行）
+PROMPTS_FILE=/path/to/my-prompts.txt bash scripts/keepalive.sh "$TOKEN"
+
+# 批量 / 恢复监控同样生效（脚本会透传给 keepalive.sh）
+PROMPTS_FILE=scripts/prompts-engineering.txt bash scripts/run-all.sh --once
+```
+
+### 请求间隔
+
+`REQUEST_INTERVAL_SEC`（Actions 里叫 `interval`）控制两次请求之间隔多少秒：
+
+- **留空（默认）**：token 之间 30 秒 ± 10 秒随机抖动，轮与轮之间 50 分钟（Keepalive）/ 30 分钟（Recovery Monitor），与旧版本一致
+- **设为 N**：两次请求严格间隔 N 秒、不加抖动；同一轮内 token 之间如此，轮与轮之间也如此。所以只有一个 token 时，就是「每 N 秒发一次请求」
+
+```bash
+# 每 10 秒发一次请求，跑完一轮就退出
+REQUEST_INTERVAL_SEC=10 bash scripts/run-all.sh --once
+
+# 恢复监控：每 60 秒轮询一轮（全部正常且响应 <30s 时仍会提前退出）
+REQUEST_INTERVAL_SEC=60 MAX_DURATION_SEC=3600 bash scripts/monitor-recovery.sh
+
+# Actions：Actions -> Run workflow -> interval 填 30
+```
+
+间隔越小请求越密集（例如 10 秒 + 6 小时容器 ≈ 2000 次请求），可能触发中转站限流或消耗额度；建议配合 `--once` 或较小的 `MAX_DURATION_SEC` 使用。
 
 
 ## 本地运行
@@ -125,6 +169,9 @@ bash scripts/monitor-recovery.sh
 
 # 调整轮询间隔和运行时长
 POLL_INTERVAL=600 MAX_DURATION_SEC=3600 bash scripts/monitor-recovery.sh
+
+# 每 60 秒发一次请求（固定间隔，不加抖动）
+REQUEST_INTERVAL_SEC=60 MAX_DURATION_SEC=3600 bash scripts/monitor-recovery.sh
 ```
 
 ### 本地单次快速测试（跳过 50 分钟等待）
@@ -193,7 +240,8 @@ bats tests/
 │   ├── list-models.sh             # 查看中转站实际支持的模型 id
 │   ├── run-all.sh                 # 批量运行器：50 分钟轮询
 │   ├── monitor-recovery.sh        # 恢复监控：30 分钟轮询 + 早期退出
-│   └── prompts.txt                # prompt 池（30 条工程 + 30 条轻量）
+│   ├── prompts.txt                # 默认 prompt 池：20 条轻量探针
+│   └── prompts-engineering.txt    # 备用 prompt 池：65 条工程提问
 ├── tests/
 │   └── test_keepalive.bats        # BATS 测试套件
 ├── .env.example                   # 本地配置模板
@@ -204,7 +252,7 @@ bats tests/
 
 - **不要滥用**：保活仅凌晨低峰期运行，恢复监控按需手动触发，频率合理不会对 Anyrouter 造成压力
 - **遵守条款**：请遵守 Anyrouter 的使用条款和服务协议
-- **频率控制**：token 之间间隔 30 秒（带随机抖动），避免触发限流
+- **频率控制**：默认 token 之间间隔 30 秒（带随机抖动）；可用 `REQUEST_INTERVAL_SEC`（Actions 的 `interval`）改成固定间隔，间隔越短越容易被限流
 - **成本**：每次测活只发一条随机短 prompt，单次成本极低；模型由 `MODEL` 决定，OpenAI 协议默认 `max_tokens=128`（可用 `MAX_TOKENS=none` 关闭）
 - **邮箱配置**：QQ 邮箱的 SMTP 授权码请在 QQ 邮箱 → 设置 → 账号 → POP3/IMAP/SMTP 服务 中生成
-- **Prompt 池**：共 60 条 prompt（30 条工程提问 + 30 条轻量级快速问答），每次随机选取一条发送
+- **Prompt 池**：默认 20 条轻量探针（`scripts/prompts.txt`），每次随机选一条；工程提问池在 `scripts/prompts-engineering.txt`，用 `PROMPTS_FILE` 切换

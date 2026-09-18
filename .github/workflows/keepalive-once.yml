@@ -16,6 +16,11 @@ on:
         required: false
         default: 'auto'
 
+      interval:
+        description: 'Seconds between two requests, e.g. 30 (blank = built-in pacing: 30s between tokens, 50min/30min between rounds)'
+        required: false
+        default: ''
+
 jobs:
   keepalive-once:
     runs-on: ubuntu-latest
@@ -40,6 +45,7 @@ jobs:
           BASE_URL: ${{ github.event.inputs.base_url || 'https://anyrouter.top' }}
           MODEL: ${{ github.event.inputs.model || 'gpt-6-astra' }}
           PROTOCOL: ${{ github.event.inputs.protocol || 'auto' }}
+          REQUEST_INTERVAL_SEC: ${{ github.event.inputs.interval || '' }}
           QQ_EMAIL: ${{ secrets.QQ_EMAIL }}
           QQ_SMTP_AUTH_CODE: ${{ secrets.QQ_SMTP_AUTH_CODE }}
           CI: "true"

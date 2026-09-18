@@ -11,6 +11,18 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BASE_URL="${BASE_URL:-https://anyrouter.top}"
 MODEL="${MODEL:-gpt-6-astra}"
 POLL_INTERVAL="${POLL_INTERVAL:-1800}"          # 30 minutes between rounds
+# Fixed seconds between two consecutive requests. When set it also replaces the
+# poll interval, so a single token is exercised once every N seconds.
+REQUEST_INTERVAL_SEC="${REQUEST_INTERVAL_SEC:-}"
+if [ -n "$REQUEST_INTERVAL_SEC" ]; then
+    case "$REQUEST_INTERVAL_SEC" in
+        *[!0-9]*)
+            echo "ERROR: REQUEST_INTERVAL_SEC must be a whole number of seconds (got '$REQUEST_INTERVAL_SEC')" >&2
+            exit 1
+            ;;
+    esac
+    POLL_INTERVAL="$REQUEST_INTERVAL_SEC"
+fi
 MAX_DURATION_SEC="${MAX_DURATION_SEC:-21500}"   # ~5h58m (just under 6h)
 QQ_EMAIL="${QQ_EMAIL:-}"
 QQ_SMTP_AUTH_CODE="${QQ_SMTP_AUTH_CODE:-}"
@@ -89,7 +101,11 @@ fi
 echo "Loaded ${#TOKENS[@]} token(s)"
 echo "Base URL: $BASE_URL"
 echo "Model: $MODEL"
-echo "Poll interval: ${POLL_INTERVAL}s"
+if [ -n "$REQUEST_INTERVAL_SEC" ]; then
+    echo "Request interval: ${REQUEST_INTERVAL_SEC}s (fixed, no jitter)"
+else
+    echo "Poll interval: ${POLL_INTERVAL}s"
+fi
 echo ""
 
 declare -A PREV_STATES   # "success" or "failed"
@@ -151,12 +167,16 @@ while true; do
             ALL_SUCCESS=false
         fi
 
-        # Brief pause between tokens
+        # Pace the requests: fixed interval when set, legacy jitter otherwise
         if [ "$i" -lt "$(( ${#TOKENS[@]} - 1 ))" ]; then
-            JITTER=$(( 30 + (RANDOM % 21) - 10 ))
-            [ "$JITTER" -lt 10 ] && JITTER=10
-            echo "  Waiting ${JITTER}s ..."
-            sleep "$JITTER"
+            if [ -n "$REQUEST_INTERVAL_SEC" ]; then
+                WAIT_SEC="$REQUEST_INTERVAL_SEC"
+            else
+                WAIT_SEC=$(( 30 + (RANDOM % 21) - 10 ))
+                [ "$WAIT_SEC" -lt 10 ] && WAIT_SEC=10
+            fi
+            echo "  Waiting ${WAIT_SEC}s ..."
+            sleep "$WAIT_SEC"
         fi
     done
 

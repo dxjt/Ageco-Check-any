@@ -3,6 +3,13 @@
 # Designed for a single GitHub Actions container: runs rounds until ~5h58m time limit.
 # Supports local usage via .env file or ANYROUTER_TOKENS env var.
 # Usage: run-all.sh [--once]
+#
+# Pacing env vars:
+#   REQUEST_INTERVAL_SEC - seconds between two consecutive requests; when set it
+#                          wins over the defaults below and is used both between
+#                          tokens and between rounds (blank = legacy pacing)
+#   SLEEP_BETWEEN_TOKENS - default 30s (+/- 10s jitter) between tokens
+#   SLEEP_BETWEEN_ROUNDS - default 3000s between rounds
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -18,6 +25,19 @@ BASE_URL="${BASE_URL:-https://anyrouter.top}"
 MODEL="${MODEL:-gpt-6-astra}"
 SLEEP_BETWEEN_TOKENS="${SLEEP_BETWEEN_TOKENS:-30}"         # seconds between tokens
 SLEEP_BETWEEN_ROUNDS="${SLEEP_BETWEEN_ROUNDS:-3000}"       # ~50 minutes between rounds
+# Fixed seconds between two consecutive requests. When set it wins over both
+# defaults above, so "one request every N seconds" also holds between rounds.
+REQUEST_INTERVAL_SEC="${REQUEST_INTERVAL_SEC:-}"
+if [ -n "$REQUEST_INTERVAL_SEC" ]; then
+    case "$REQUEST_INTERVAL_SEC" in
+        *[!0-9]*)
+            echo "ERROR: REQUEST_INTERVAL_SEC must be a whole number of seconds (got '$REQUEST_INTERVAL_SEC')" >&2
+            exit 1
+            ;;
+    esac
+    SLEEP_BETWEEN_TOKENS="$REQUEST_INTERVAL_SEC"
+    SLEEP_BETWEEN_ROUNDS="$REQUEST_INTERVAL_SEC"
+fi
 MAX_DURATION_SEC="${MAX_DURATION_SEC:-21500}"               # ~5h58m (just under 6h limit)
 QQ_EMAIL="${QQ_EMAIL:-}"
 QQ_SMTP_AUTH_CODE="${QQ_SMTP_AUTH_CODE:-}"
@@ -105,6 +125,9 @@ fi
 echo "Loaded ${#TOKENS[@]} token(s)"
 echo "Base URL: $BASE_URL"
 echo "Model: $MODEL"
+if [ -n "$REQUEST_INTERVAL_SEC" ]; then
+    echo "Request interval: ${REQUEST_INTERVAL_SEC}s (fixed, no jitter)"
+fi
 echo ""
 
 START_TIME=$(date +%s)
@@ -156,12 +179,17 @@ while true; do
             ROUND_FAIL=$((ROUND_FAIL + 1))
         fi
 
-        # Add random jitter to interval (20-40s instead of fixed 30s)
+        # Pace the requests: the fixed interval when the user set one, otherwise
+        # the legacy 30s +/- 10s jitter that avoids looking like a burst.
         if [ "$i" -lt "$(( ${#TOKENS[@]} - 1 ))" ]; then
-            JITTER=$(( SLEEP_BETWEEN_TOKENS + (RANDOM % 21) - 10 ))
-            [ "$JITTER" -lt 10 ] && JITTER=10
-            echo "  Waiting ${JITTER}s ..."
-            sleep "$JITTER"
+            if [ -n "$REQUEST_INTERVAL_SEC" ]; then
+                WAIT_SEC="$REQUEST_INTERVAL_SEC"
+            else
+                WAIT_SEC=$(( SLEEP_BETWEEN_TOKENS + (RANDOM % 21) - 10 ))
+                [ "$WAIT_SEC" -lt 10 ] && WAIT_SEC=10
+            fi
+            echo "  Waiting ${WAIT_SEC}s ..."
+            sleep "$WAIT_SEC"
         fi
     done
 

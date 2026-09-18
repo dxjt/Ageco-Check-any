@@ -11,7 +11,10 @@
 #   openai         - force the legacy chat-completions API at /v1/chat/completions
 #
 # Other env vars: MAX_TOKENS (default 128, "none" to omit the field),
-#                 TIMEOUT_SEC (default 120)
+#                 TIMEOUT_SEC (default 120),
+#                 PROMPTS_FILE (default scripts/prompts.txt; each request picks a
+#                               random line from it. A relative path is resolved
+#                               against the repo root, then the cwd)
 #
 # Prints ALL output (including errors, retries, stack traces) for diagnostics.
 set -euo pipefail
@@ -24,7 +27,15 @@ MAX_TOKENS="${MAX_TOKENS:-128}"
 TIMEOUT_SEC="${TIMEOUT_SEC:-120}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROMPTS_FILE="$SCRIPT_DIR/prompts.txt"
+PROMPTS_FILE="${PROMPTS_FILE:-$SCRIPT_DIR/prompts.txt}"
+# Resolve a relative PROMPTS_FILE against the repo root first, then the cwd, so
+# both "scripts/prompts-engineering.txt" and "./my-prompts.txt" work.
+if [ ! -f "$PROMPTS_FILE" ] && [ "${PROMPTS_FILE#/}" = "$PROMPTS_FILE" ]; then
+    REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+    if [ -f "$REPO_ROOT/$PROMPTS_FILE" ]; then
+        PROMPTS_FILE="$REPO_ROOT/$PROMPTS_FILE"
+    fi
+fi
 
 # --- Resolve protocol (explicit PROTOCOL wins, otherwise infer from model id) ---
 if [ "$PROTOCOL" = "auto" ]; then
@@ -204,6 +215,7 @@ fi
 
 # --- Print ALL output for diagnostics ---
 echo "  Protocol: ${PROTOCOL} | Model: ${MODEL}"
+echo "  Prompt pool: ${PROMPTS_FILE}"
 echo "  Prompt: ${PROMPT:0:60}..."
 echo "  --- ${API_LABEL} output (exit_code=$EXIT_CODE) ---"
 cat "$OUTPUT_FILE" | sed 's/^/    /'

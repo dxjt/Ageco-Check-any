@@ -36,11 +36,13 @@ teardown() {
     [ ! -f "$TEST_DIR/.claude/settings.json" ]
 }
 
-@test "keepalive.sh picks a prompt from prompts.txt" {
-    # Verify prompts.txt exists and has content
+@test "prompts.txt holds the 20 lightweight probes" {
     [ -f "scripts/prompts.txt" ]
-    local count=$(grep -cve '^\s*$' -e '^#' scripts/prompts.txt || true)
-    [ "$count" -ge 10 ]
+    local count=$(grep -cve '^[[:space:]]*$' -e '^#' scripts/prompts.txt || true)
+    [ "$count" -eq 20 ]
+    grep -q '只回复一个字符：1' scripts/prompts.txt
+    grep -q '###ALIVE###' scripts/prompts.txt
+    [ -f "scripts/prompts-engineering.txt" ]
 }
 
 @test "run-all.sh fails without tokens" {
@@ -182,4 +184,91 @@ MOCK
     [ "$status" -eq 0 ]
     [[ "$output" == *"claude-opus-4-8[1m]"* ]]
     [[ "$output" == *"gpt-6-astra"* ]]
+}
+
+@test "keepalive.sh sends a prompt taken from the default pool" {
+    cat > "$TEST_DIR/mock_bin/curl" << 'MOCK'
+#!/usr/bin/env bash
+printf '%s\n' "$@" >> "$TEST_DIR/curl_args.txt"
+echo '{"id":"resp_pool","object":"response","status":"completed","output_text":"ok"}'
+MOCK
+    chmod +x "$TEST_DIR/mock_bin/curl"
+
+    run bash scripts/keepalive.sh "$TEST_TOKEN" "https://relay.example.com" "gpt-6-astra"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"Prompt pool: "*"scripts/prompts.txt"* ]]
+
+    local sent
+    sent=$(grep -o '"input":"[^"]*"' "$TEST_DIR/curl_args.txt" | head -1 | sed -e 's/^"input":"//' -e 's/"$//')
+    [ -n "$sent" ]
+    grep -Fq "$sent" scripts/prompts.txt
+}
+
+@test "keepalive.sh honours PROMPTS_FILE" {
+    printf '# custom pool\n只输出一个英文句号。\n' > "$TEST_DIR/custom-prompts.txt"
+    cat > "$TEST_DIR/mock_bin/curl" << 'MOCK'
+#!/usr/bin/env bash
+printf '%s\n' "$@" >> "$TEST_DIR/curl_args.txt"
+echo '{"id":"resp_custom","object":"response","status":"completed","output_text":". "}'
+MOCK
+    chmod +x "$TEST_DIR/mock_bin/curl"
+
+    run env PROMPTS_FILE="$TEST_DIR/custom-prompts.txt" bash scripts/keepalive.sh "$TEST_TOKEN" "https://relay.example.com" "gpt-6-astra"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"$TEST_DIR/custom-prompts.txt"* ]]
+    grep -q '只输出一个英文句号。' "$TEST_DIR/curl_args.txt"
+}
+
+@test "keepalive.sh resolves a relative PROMPTS_FILE against the repo root" {
+    cat > "$TEST_DIR/mock_bin/curl" << 'MOCK'
+#!/usr/bin/env bash
+printf '%s\n' "$@" >> "$TEST_DIR/curl_args.txt"
+echo '{"id":"resp_rel","object":"response","status":"completed","output_text":"ok"}'
+MOCK
+    chmod +x "$TEST_DIR/mock_bin/curl"
+
+    local repo_root
+    repo_root="$(cd "$(dirname "$BATS_TEST_FILENAME")/.." && pwd)"
+    cd "$TEST_DIR"
+    run env PROMPTS_FILE=scripts/prompts-engineering.txt bash "$repo_root/scripts/keepalive.sh" "$TEST_TOKEN" "https://relay.example.com" "gpt-6-astra"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"Prompt pool: $repo_root/scripts/prompts-engineering.txt"* ]]
+}
+
+@test "run-all.sh uses a fixed REQUEST_INTERVAL_SEC between requests" {
+    cat > "$TEST_DIR/mock_bin/curl" << 'MOCK'
+#!/usr/bin/env bash
+echo '{"id":"resp_interval","object":"response","status":"completed","output_text":"ok"}'
+MOCK
+    chmod +x "$TEST_DIR/mock_bin/curl"
+
+    export ANYROUTER_TOKENS="sk-testAAA
+sk-testBBB"
+    run timeout 30 env REQUEST_INTERVAL_SEC=1 bash scripts/run-all.sh --once
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"Request interval: 1s"* ]]
+    [[ "$output" == *"Waiting 1s ..."* ]]
+    [[ "$output" == *"Round 1 summary: 2 success, 0 failed"* ]]
+}
+
+@test "run-all.sh rejects a non-numeric REQUEST_INTERVAL_SEC" {
+    export ANYROUTER_TOKENS="sk-testAAA"
+    run env REQUEST_INTERVAL_SEC=abc bash scripts/run-all.sh --once
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"must be a whole number of seconds"* ]]
+}
+
+@test "monitor-recovery.sh uses a fixed REQUEST_INTERVAL_SEC" {
+    cat > "$TEST_DIR/mock_bin/curl" << 'MOCK'
+#!/usr/bin/env bash
+echo '{"id":"resp_mon","object":"response","status":"completed","output_text":"ok"}'
+MOCK
+    chmod +x "$TEST_DIR/mock_bin/curl"
+
+    export ANYROUTER_TOKENS="sk-testAAA
+sk-testBBB"
+    run timeout 60 env REQUEST_INTERVAL_SEC=1 MAX_DURATION_SEC=30 bash scripts/monitor-recovery.sh
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"Request interval: 1s"* ]]
+    [[ "$output" == *"Waiting 1s ..."* ]]
 }
