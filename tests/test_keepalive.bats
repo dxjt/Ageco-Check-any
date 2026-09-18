@@ -325,6 +325,7 @@ MOCK
     grep -q 'base_url = "https://anyrouter.top/v1"' "$TEST_DIR/codex_config.toml"
     grep -q 'wire_api = "responses"' "$TEST_DIR/codex_config.toml"
     grep -q 'env_key = "ANYROUTER_API_KEY"' "$TEST_DIR/codex_config.toml"
+    ! grep -q 'disable_response_storage' "$TEST_DIR/codex_config.toml"
     grep -q '^KEY=sk-ant-test12345678$' "$TEST_DIR/codex_env.txt"
     grep -qv 'CODEX_HOME=unset' "$TEST_DIR/codex_env.txt"
 }
@@ -339,4 +340,31 @@ MOCK
     run bash scripts/install-cli.sh bogus
     [ "$status" -eq 1 ]
     [[ "$output" == *"Usage: "*"claude|codex"* ]]
+}
+
+@test "keepalive.sh reports the codex CLI error message on failure" {
+    cat > "$TEST_DIR/mock_bin/codex" << 'MOCK'
+#!/usr/bin/env bash
+echo "ERROR: We're currently experiencing high demand, which may cause temporary errors." >&2
+echo "ERROR: We're currently experiencing high demand, which may cause temporary errors." >&2
+exit 1
+MOCK
+    chmod +x "$TEST_DIR/mock_bin/codex"
+
+    run env PROTOCOL=codex bash scripts/keepalive.sh "$TEST_TOKEN" "https://anyrouter.top" "gpt-6-astra"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"FAILED (Codex CLI error: We're currently experiencing high demand"* ]]
+}
+
+@test "keepalive.sh reports the claude CLI error message on failure" {
+    cat > "$TEST_DIR/mock_bin/claude" << 'MOCK'
+#!/usr/bin/env bash
+echo 'Error: {"error":{"message":"当前模型 claude-opus-4-8[1m] 负载已经达到上限，请稍后重试"}}'
+exit 1
+MOCK
+    chmod +x "$TEST_DIR/mock_bin/claude"
+
+    run bash scripts/keepalive.sh "$TEST_TOKEN" "https://anyrouter.top" "claude-opus-4-8[1m]"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"FAILED (Claude error: 当前模型 claude-opus-4-8[1m] 负载已经达到上限"* ]]
 }

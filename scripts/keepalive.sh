@@ -191,6 +191,27 @@ extract_error_message() {
     return 0
 }
 
+# Pull the relay/provider message out of a CLI log: codex prints "ERROR: ..."
+# lines, claude prints "Error: ..." or a {"error": ...} blob.
+extract_cli_error() {
+    local log="$1" line
+    [ -f "$log" ] || return 0
+    line=$(grep -aE '^[[:space:]]*(ERROR|Error)' "$log" 2>/dev/null | tail -1 || true)
+    case "$line" in
+        *'"message":"'*)
+            line=$(printf '%s' "$line" | sed -e 's/.*"message":"\([^"]*\)".*/\1/')
+            ;;
+        *'"error":"'*)
+            line=$(printf '%s' "$line" | sed -e 's/.*"error":"\([^"]*\)".*/\1/')
+            ;;
+        *)
+            line=$(printf '%s' "$line" | sed -e 's/^[[:space:]]*//' -e 's/^ERROR:[[:space:]]*//' -e 's/^Error:[[:space:]]*//')
+            ;;
+    esac
+    printf '%s' "$line"
+    return 0
+}
+
 PROMPT=$(pick_prompt)
 
 # --- Run health check ---
@@ -215,7 +236,6 @@ model = "$MODEL"
 model_provider = "anyrouter"
 approval_policy = "never"
 sandbox_mode = "read-only"
-disable_response_storage = true
 
 [model_providers.anyrouter]
 name = "Anyrouter"
@@ -226,7 +246,7 @@ EOF
     export ANYROUTER_API_KEY="$TOKEN"
     timeout "$TIMEOUT_SEC" env CODEX_HOME="$CODEX_HOME_DIR" \
         codex exec --model "$MODEL" --skip-git-repo-check --ephemeral \
-        -C "$CODEX_WORK_DIR" -o "$LAST_MSG_FILE" "$PROMPT" > "$OUTPUT_FILE" 2>&1 || EXIT_CODE=$?
+        -C "$CODEX_WORK_DIR" -o "$LAST_MSG_FILE" "$PROMPT" < /dev/null > "$OUTPUT_FILE" 2>&1 || EXIT_CODE=$?
 elif [ "$PROTOCOL" != "anthropic" ]; then
     # OpenAI-compatible path: direct HTTP call to /v1/responses or /v1/chat/completions
     if [ "$PROTOCOL" = "responses" ]; then
@@ -277,6 +297,11 @@ echo "  --- ${API_LABEL} output (exit_code=$EXIT_CODE) ---"
 cat "$OUTPUT_FILE" | sed 's/^/    /'
 echo "  --- End output ---"
 
+CLI_ERROR=""
+if [ "$PROTOCOL" = "anthropic" ] || [ "$PROTOCOL" = "codex" ]; then
+    CLI_ERROR=$(extract_cli_error "$OUTPUT_FILE")
+fi
+
 if [ -n "$LAST_MSG_FILE" ] && [ -s "$LAST_MSG_FILE" ]; then
     echo "  --- Codex last message ---"
     sed 's/^/    /' "$LAST_MSG_FILE"
@@ -292,21 +317,28 @@ if [ -n "$LAST_MSG_FILE" ] && [ -s "$LAST_MSG_FILE" ]; then
     OUTPUT_CONTENT=$(cat "$LAST_MSG_FILE")
 fi
 
-# Clean up
-rm -f "$OUTPUT_FILE" "$SETTINGS_FILE"
+# Clean up. Never let a locked/busy temp file abort the health check: on Windows
+# the codex process may still hold a handle when we get here.
+rm -f "$OUTPUT_FILE" "$SETTINGS_FILE" 2>/dev/null || true
 if [ -n "$LAST_MSG_FILE" ]; then
-    rm -f "$LAST_MSG_FILE"
+    rm -f "$LAST_MSG_FILE" 2>/dev/null || true
 fi
 if [ -n "$CODEX_HOME_DIR" ]; then
-    rm -rf "$CODEX_HOME_DIR"
+    rm -rf "$CODEX_HOME_DIR" 2>/dev/null || true
 fi
 if [ -n "$CODEX_WORK_DIR" ]; then
-    rm -rf "$CODEX_WORK_DIR"
+    rm -rf "$CODEX_WORK_DIR" 2>/dev/null || true
 fi
 
 # 1. Non-zero exit code is a clear failure (includes timeout exit 124)
 if [ "$EXIT_CODE" -ne 0 ]; then
-    echo "  FAILED (non-zero exit: $EXIT_CODE)"
+    if [ -n "$CLI_ERROR" ]; then
+        echo "  FAILED (${API_LABEL} error: ${CLI_ERROR})"
+    elif [ "$EXIT_CODE" -eq 124 ]; then
+        echo "  FAILED (timed out after ${TIMEOUT_SEC}s)"
+    else
+        echo "  FAILED (non-zero exit: $EXIT_CODE)"
+    fi
     exit 1
 fi
 
