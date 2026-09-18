@@ -287,3 +287,56 @@ sk-testBBB"
     [[ "$output" == *"Request interval: 1s"* ]]
     [[ "$output" == *"Waiting 1s ..."* ]]
 }
+
+@test "keepalive.sh fails fast when the codex CLI is missing" {
+    run env PATH="$TEST_DIR/mock_bin:/usr/bin:/bin" PROTOCOL=codex bash scripts/keepalive.sh "$TEST_TOKEN" "https://relay.example.com" "gpt-6-astra"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"codex CLI not found"* ]]
+    [[ "$output" == *"install-cli.sh codex"* ]]
+}
+
+@test "keepalive.sh drives the codex CLI with a throwaway CODEX_HOME" {
+    cat > "$TEST_DIR/mock_bin/codex" << 'MOCK'
+#!/usr/bin/env bash
+printf '%s\n' "$@" > "$TEST_DIR/codex_args.txt"
+printf 'CODEX_HOME=%s\n' "${CODEX_HOME:-unset}" > "$TEST_DIR/codex_env.txt"
+printf 'KEY=%s\n' "${ANYROUTER_API_KEY:-unset}" >> "$TEST_DIR/codex_env.txt"
+if [ -f "$CODEX_HOME/config.toml" ]; then cp "$CODEX_HOME/config.toml" "$TEST_DIR/codex_config.toml"; fi
+out=""
+while [ $# -gt 0 ]; do
+    if [ "$1" = "-o" ]; then out="$2"; fi
+    shift
+done
+if [ -n "$out" ]; then printf '1' > "$out"; fi
+echo "codex mock ran"
+exit 0
+MOCK
+    chmod +x "$TEST_DIR/mock_bin/codex"
+
+    run env PROTOCOL=codex bash scripts/keepalive.sh "$TEST_TOKEN" "https://anyrouter.top/v1" "gpt-6-astra"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"Protocol: codex"* ]]
+    [[ "$output" == *"Codex last message"* ]]
+    [[ "$output" == *"SUCCESS"* ]]
+
+    grep -q '^exec$' "$TEST_DIR/codex_args.txt"
+    grep -q -- '--skip-git-repo-check' "$TEST_DIR/codex_args.txt"
+    grep -q 'gpt-6-astra' "$TEST_DIR/codex_args.txt"
+    grep -q 'base_url = "https://anyrouter.top/v1"' "$TEST_DIR/codex_config.toml"
+    grep -q 'wire_api = "responses"' "$TEST_DIR/codex_config.toml"
+    grep -q 'env_key = "ANYROUTER_API_KEY"' "$TEST_DIR/codex_config.toml"
+    grep -q '^KEY=sk-ant-test12345678$' "$TEST_DIR/codex_env.txt"
+    grep -qv 'CODEX_HOME=unset' "$TEST_DIR/codex_env.txt"
+}
+
+@test "install-cli.sh skips an already installed CLI" {
+    run bash scripts/install-cli.sh claude
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"claude CLI already installed"* ]]
+}
+
+@test "install-cli.sh rejects an unknown target" {
+    run bash scripts/install-cli.sh bogus
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"Usage: "*"claude|codex"* ]]
+}

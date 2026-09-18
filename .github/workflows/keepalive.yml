@@ -26,6 +26,11 @@ on:
         required: false
         default: ''
 
+      install_cli:
+        description: 'Install CLIs before running: auto (only what the protocol needs) | yes (Claude + Codex) | no (skip)'
+        required: false
+        default: 'auto'
+
 # Prevent concurrent runs stacking up
 concurrency:
   group: keepalive
@@ -40,14 +45,18 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install Claude Code CLI
-        if: ${{ (github.event.inputs.protocol || 'auto') == 'anthropic' || ((github.event.inputs.protocol || 'auto') == 'auto' && startsWith(github.event.inputs.model || 'gpt-6-astra', 'claude')) }}
-        run: |
-          curl -fsSL https://claude.ai/install.sh | bash
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+        if: ${{ (github.event.inputs.install_cli || 'auto') != 'no' && ((github.event.inputs.install_cli || 'auto') == 'yes' || (github.event.inputs.protocol || 'auto') == 'anthropic' || ((github.event.inputs.protocol || 'auto') == 'auto' && startsWith(github.event.inputs.model || 'gpt-6-astra', 'claude'))) }}
+        run: bash scripts/install-cli.sh claude
 
-      - name: Verify Claude CLI
-        if: ${{ (github.event.inputs.protocol || 'auto') == 'anthropic' || ((github.event.inputs.protocol || 'auto') == 'auto' && startsWith(github.event.inputs.model || 'gpt-6-astra', 'claude')) }}
-        run: claude --version
+      - name: Install Codex CLI
+        if: ${{ (github.event.inputs.install_cli || 'auto') != 'no' && ((github.event.inputs.install_cli || 'auto') == 'yes' || (github.event.inputs.protocol || 'auto') == 'codex') }}
+        run: bash scripts/install-cli.sh codex
+
+      - name: Show available CLIs
+        if: ${{ (github.event.inputs.install_cli || 'auto') != 'no' }}
+        run: |
+          command -v claude >/dev/null 2>&1 && claude --version || echo "claude CLI: not installed"
+          command -v codex >/dev/null 2>&1 && codex --version || echo "codex CLI: not installed"
 
       - name: Run keepalive for all tokens
         env:

@@ -63,7 +63,7 @@ sk-ant-xxx333
 | 保活（单次） | Actions → Anyrouter Keepalive (Once) → Run workflow |
 | 恢复监控 | Actions → Anyrouter Recovery Monitor → Run workflow |
 
-三个工作流在手动触发时都可自定义 `base_url`、`model`、`protocol` 和 `interval`（请求间隔秒数），默认使用 `gpt-6-astra`（Responses 协议）。
+三个工作流在手动触发时都可自定义 `base_url`、`model`、`protocol`、`interval`（请求间隔秒数）和 `install_cli`（跑之前装不装 CLI），默认使用 `gpt-6-astra`（Responses 协议）。
 
 ## 模型与协议
 
@@ -75,8 +75,35 @@ sk-ant-xxx333
 | `anthropic` | 想强制走 Claude Code CLI | Anthropic Messages API（`claude -p` + `~/.claude/settings.json`） |
 | `responses` | 想强制走 `/v1/responses`：id 是 `claude*` 但中转站只认 OpenAI 接口，或不想装 Claude CLI | `POST {BASE_URL}/v1/responses`（curl 直连） |
 | `openai` | 中转站只认老的 chat-completions 接口 | `POST {BASE_URL}/v1/chat/completions`（curl 直连） |
+| `codex` | 想用 Codex CLI 发请求（不走 curl） | `codex exec` 发出的 `POST {BASE_URL}/v1/responses` |
 
 > `auto` 只负责「猜」，后三个是「强制覆盖」。所以 `auto` 和 `responses` 不是重复：一个是按 id 自动选，一个是不管 id 都走 Responses 接口——用来对付「模型 id 和可用接口对不上」的中转站。
+
+### 通过 CLI 调用（Claude Code CLI / Codex CLI）
+
+`anthropic` 协议用 Claude Code CLI，`codex` 协议用 Codex CLI，两者都要先装 CLI：
+
+```bash
+# 装 CLI（已经装过会自动跳过，不会重复安装）
+bash scripts/install-cli.sh claude
+bash scripts/install-cli.sh codex
+
+# 用 Codex CLI 发请求：脚本会临时生成一个 CODEX_HOME，不会动你自己的 ~/.codex/config.toml
+PROTOCOL=codex MODEL="gpt-6-astra" bash scripts/keepalive.sh "$TOKEN"
+
+# 用 Claude Code CLI 发请求
+PROTOCOL=anthropic MODEL='claude-opus-4-8[1m]' bash scripts/keepalive.sh "$TOKEN"
+```
+
+Actions 里用 `install_cli` 输入决定跑之前装不装：
+
+| install_cli | 行为 |
+|---|---|
+| `auto`（默认） | 只装这次协议需要的：`anthropic` / `claude*` 装 Claude CLI，`codex` 装 Codex CLI；`responses` / `openai` 什么都不装（最快，约 2 秒跑完） |
+| `yes` | Claude CLI 和 Codex CLI 都装（两个都能用，切换协议不用重跑） |
+| `no` | 都不装：依赖 runner 上已存在；缺 CLI 时脚本会直接报 `claude CLI not found` / `codex CLI not found` |
+
+> Codex CLI 从 npm 安装（`npm install -g @openai/codex`），Claude Code CLI 从 `https://claude.ai/install.sh` 安装。GitHub 的 runner 是一次性的，所以 `auto`/`yes` 每次运行都会装一遍；这也是为什么默认走 curl 的 `responses` 最省时间。
 
 - 默认模型是 `gpt-6-astra`，走 Responses 协议；`claude-opus-4-8[1m]`、`claude-fable-5-1[1m]` 这类 id 走 Anthropic 协议。
 - Responses 协议：`Authorization: Bearer <token>`，请求体为 `{"model", "input", "max_output_tokens", "stream": false}`，回复从 `output_text` 或 `output[].content[].text` 中取。
@@ -239,6 +266,7 @@ bats tests/
 ├── scripts/
 │   ├── keepalive.sh               # 核心脚本：单 token 测活（Anthropic / OpenAI 双协议）
 │   ├── list-models.sh             # 查看中转站实际支持的模型 id
+│   ├── install-cli.sh             # 安装 Claude Code CLI / Codex CLI（已装则跳过）
 │   ├── run-all.sh                 # 批量运行器：50 分钟轮询
 │   ├── monitor-recovery.sh        # 恢复监控：30 分钟轮询 + 早期退出
 │   ├── prompts.txt                # 默认 prompt 池：20 条轻量探针
@@ -257,3 +285,4 @@ bats tests/
 - **成本**：每次测活只发一条随机短 prompt，单次成本极低；模型由 `MODEL` 决定，OpenAI 协议默认 `max_tokens=128`（可用 `MAX_TOKENS=none` 关闭）
 - **邮箱配置**：QQ 邮箱的 SMTP 授权码请在 QQ 邮箱 → 设置 → 账号 → POP3/IMAP/SMTP 服务 中生成
 - **Prompt 池**：默认 20 条轻量探针（`scripts/prompts.txt`），每次随机选一条；工程提问池在 `scripts/prompts-engineering.txt`，用 `PROMPTS_FILE` 切换
+- **CLI 协议**：`anthropic` 走 Claude Code CLI、`codex` 走 Codex CLI；不确定装没装就先跑 `bash scripts/install-cli.sh codex`（已装会跳过）

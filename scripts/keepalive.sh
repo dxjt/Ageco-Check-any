@@ -9,6 +9,8 @@
 #   anthropic      - force Claude Code CLI (Anthropic Messages API)
 #   responses      - force the OpenAI Responses API at /v1/responses
 #   openai         - force the legacy chat-completions API at /v1/chat/completions
+#   codex          - drive the OpenAI Codex CLI (codex exec) with a throwaway
+#                    CODEX_HOME pointing at BASE_URL
 #
 # Other env vars: MAX_TOKENS (default 128, "none" to omit the field),
 #                 TIMEOUT_SEC (default 120),
@@ -45,10 +47,26 @@ if [ "$PROTOCOL" = "auto" ]; then
     esac
 fi
 case "$PROTOCOL" in
-    anthropic|responses|openai) ;;
+    anthropic|responses|openai|codex) ;;
     *)
-        echo "  FAILED (unknown PROTOCOL '$PROTOCOL', expected auto|anthropic|responses|openai)" >&2
+        echo "  FAILED (unknown PROTOCOL '$PROTOCOL', expected auto|anthropic|responses|openai|codex)" >&2
         exit 1
+        ;;
+esac
+
+# The two CLI-driven protocols need their CLI on PATH before we can run anything
+case "$PROTOCOL" in
+    anthropic)
+        if ! command -v claude >/dev/null 2>&1; then
+            echo "  FAILED (claude CLI not found - run 'bash scripts/install-cli.sh claude', or set install_cli=yes)" >&2
+            exit 1
+        fi
+        ;;
+    codex)
+        if ! command -v codex >/dev/null 2>&1; then
+            echo "  FAILED (codex CLI not found - run 'bash scripts/install-cli.sh codex', or set install_cli=yes)" >&2
+            exit 1
+        fi
         ;;
 esac
 
@@ -78,6 +96,16 @@ api_endpoint() {
         */"$path") printf '%s' "$base" ;;
         */v1)      printf '%s/%s' "$base" "$path" ;;
         *)         printf '%s/v1/%s' "$base" "$path" ;;
+    esac
+}
+
+# Base URL in the ".../v1" form the CLIs expect in their config files
+openai_base_url() {
+    local base="${1%/}"
+    case "$base" in
+        */v1)        printf '%s' "$base" ;;
+        */responses) printf '%s' "${base%/responses}" ;;
+        *)           printf '%s/v1' "$base" ;;
     esac
 }
 
@@ -169,9 +197,36 @@ PROMPT=$(pick_prompt)
 OUTPUT_FILE=$(mktemp)
 EXIT_CODE=0
 SETTINGS_FILE=""
+LAST_MSG_FILE=""
+CODEX_HOME_DIR=""
+CODEX_WORK_DIR=""
 API_LABEL="Claude"
 
-if [ "$PROTOCOL" != "anthropic" ]; then
+if [ "$PROTOCOL" = "codex" ]; then
+    # Codex CLI path: a throwaway CODEX_HOME carries the relay endpoint, so the
+    # caller's own ~/.codex/config.toml is never touched.
+    API_LABEL="Codex CLI"
+    CODEX_HOME_DIR=$(mktemp -d)
+    CODEX_WORK_DIR=$(mktemp -d)
+    LAST_MSG_FILE="$CODEX_WORK_DIR/last_message.txt"
+    cat > "$CODEX_HOME_DIR/config.toml" << EOF
+model = "$MODEL"
+model_provider = "anyrouter"
+approval_policy = "never"
+sandbox_mode = "read-only"
+disable_response_storage = true
+
+[model_providers.anyrouter]
+name = "Anyrouter"
+base_url = "$(openai_base_url "$BASE_URL")"
+env_key = "ANYROUTER_API_KEY"
+wire_api = "responses"
+EOF
+    export ANYROUTER_API_KEY="$TOKEN"
+    timeout "$TIMEOUT_SEC" env CODEX_HOME="$CODEX_HOME_DIR" \
+        codex exec --model "$MODEL" --skip-git-repo-check --ephemeral \
+        -C "$CODEX_WORK_DIR" -o "$LAST_MSG_FILE" "$PROMPT" > "$OUTPUT_FILE" 2>&1 || EXIT_CODE=$?
+elif [ "$PROTOCOL" != "anthropic" ]; then
     # OpenAI-compatible path: direct HTTP call to /v1/responses or /v1/chat/completions
     if [ "$PROTOCOL" = "responses" ]; then
         API_LABEL="OpenAI Responses"
@@ -221,11 +276,32 @@ echo "  --- ${API_LABEL} output (exit_code=$EXIT_CODE) ---"
 cat "$OUTPUT_FILE" | sed 's/^/    /'
 echo "  --- End output ---"
 
+if [ -n "$LAST_MSG_FILE" ] && [ -s "$LAST_MSG_FILE" ]; then
+    echo "  --- Codex last message ---"
+    sed 's/^/    /' "$LAST_MSG_FILE"
+    echo "  --- End last message ---"
+fi
+
 # --- Evaluate result ---
 OUTPUT_CONTENT=$(cat "$OUTPUT_FILE" 2>/dev/null || true)
 
+# The CLI protocols talk to the model through their own runtime, so the file the
+# CLI wrote is the authoritative answer (the log above is just diagnostics).
+if [ -n "$LAST_MSG_FILE" ] && [ -s "$LAST_MSG_FILE" ]; then
+    OUTPUT_CONTENT=$(cat "$LAST_MSG_FILE")
+fi
+
 # Clean up
 rm -f "$OUTPUT_FILE" "$SETTINGS_FILE"
+if [ -n "$LAST_MSG_FILE" ]; then
+    rm -f "$LAST_MSG_FILE"
+fi
+if [ -n "$CODEX_HOME_DIR" ]; then
+    rm -rf "$CODEX_HOME_DIR"
+fi
+if [ -n "$CODEX_WORK_DIR" ]; then
+    rm -rf "$CODEX_WORK_DIR"
+fi
 
 # 1. Non-zero exit code is a clear failure (includes timeout exit 124)
 if [ "$EXIT_CODE" -ne 0 ]; then
@@ -239,8 +315,9 @@ if [ -z "$OUTPUT_CONTENT" ]; then
     exit 1
 fi
 
-# 3. OpenAI-style paths: the body must carry assistant content
-if [ "$PROTOCOL" != "anthropic" ]; then
+# 3. curl-based paths: the body must carry assistant content (the CLI protocols
+#    are judged by the answer file the CLI wrote instead)
+if [ "$PROTOCOL" = "responses" ] || [ "$PROTOCOL" = "openai" ]; then
     if [ -z "$(extract_openai_content "$OUTPUT_CONTENT")" ]; then
         RELAY_ERROR=$(extract_error_message "$OUTPUT_CONTENT")
         if [ -n "$RELAY_ERROR" ]; then
