@@ -127,6 +127,22 @@ EOF
         --upload-file "$mail_file" \
         || curl_exit=$?
 
+    # QQ Mail rejects "MAIL FROM:<...> SIZE=n" with 502 Invalid input; curl adds
+    # that SIZE parameter only when the upload size is known, so retry by
+    # streaming the same message from stdin.
+    if [ "$curl_exit" -ne 0 ]; then
+        echo "  Retrying without the SIZE parameter (streaming from stdin) ..."
+        curl_exit=0
+        curl -sS --ssl-reqd --fail-with-body ${curl_opts[@]+"${curl_opts[@]}"} \
+            --url "smtps://smtp.qq.com:465" \
+            --user "$QQ_EMAIL:$QQ_SMTP_AUTH_CODE" \
+            --login-options "AUTH=LOGIN" \
+            --mail-from "$QQ_EMAIL" \
+            --mail-rcpt "$QQ_EMAIL" \
+            --upload-file - < "$mail_file" \
+            || curl_exit=$?
+    fi
+
     rm -f "$mail_file"
 
     if [ "$curl_exit" -eq 0 ]; then
