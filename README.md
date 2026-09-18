@@ -103,6 +103,9 @@ Actions 里用 `install_cli` 输入决定跑之前装不装：
 | `yes` | Claude CLI 和 Codex CLI 都装（两个都能用，切换协议不用重跑） |
 | `no` | 都不装：依赖 runner 上已存在；缺 CLI 时脚本会直接报 `claude CLI not found` / `codex CLI not found` |
 
+- Codex CLI 走的是流式请求（`stream: true`），中转站必须支持 SSE 流式返回；只支持整包返回的站点会报 `stream disconnected before completion`，那种情况用 `PROTOCOL=responses` 的 curl 直连即可。
+- Codex CLI 会把请求发到 `{BASE_URL}/v1/responses`（`wire_api = "responses"`），并带上一堆工具定义，报文比 curl 探针大得多；只想测「账号是否活着」建议还是用默认的 `responses`。
+
 > Codex CLI 从 npm 安装（`npm install -g @openai/codex`），Claude Code CLI 从 `https://claude.ai/install.sh` 安装。GitHub 的 runner 是一次性的，所以 `auto`/`yes` 每次运行都会装一遍；这也是为什么默认走 curl 的 `responses` 最省时间。
 
 - 默认模型是 `gpt-6-astra`，走 Responses 协议；`claude-opus-4-8[1m]`、`claude-fable-5-1[1m]` 这类 id 走 Anthropic 协议。
