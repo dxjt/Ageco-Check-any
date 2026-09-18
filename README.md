@@ -69,13 +69,14 @@ sk-ant-xxx333
 
 测活请求支持两种协议，由 `PROTOCOL` 环境变量控制，默认 `auto`（按模型 id 自动判断）：
 
-| PROTOCOL | 模型 id | 走的通道 |
+| PROTOCOL | 什么时候用 | 实际走的通道 |
 |---|---|---|
-| `auto`（默认） | 以 `claude` 开头 | Anthropic Messages API（Claude Code CLI + `~/.claude/settings.json`） |
-| `auto`（默认） | 其他任意 id | OpenAI Responses API `POST {BASE_URL}/v1/responses` |
-| `anthropic` | 强制 | Anthropic Messages API |
-| `responses` | 强制 | OpenAI Responses API（curl 直连，不依赖 Claude CLI） |
-| `openai` | 强制 | 旧的 Chat Completions API `POST {BASE_URL}/v1/chat/completions` |
+| `auto`（默认） | 不用管，按模型 id 自动判断 | 以 `claude` 开头 → Anthropic Messages API；其他 id（如 `gpt-6-astra`）→ Responses |
+| `anthropic` | 想强制走 Claude Code CLI | Anthropic Messages API（`claude -p` + `~/.claude/settings.json`） |
+| `responses` | 想强制走 `/v1/responses`：id 是 `claude*` 但中转站只认 OpenAI 接口，或不想装 Claude CLI | `POST {BASE_URL}/v1/responses`（curl 直连） |
+| `openai` | 中转站只认老的 chat-completions 接口 | `POST {BASE_URL}/v1/chat/completions`（curl 直连） |
+
+> `auto` 只负责「猜」，后三个是「强制覆盖」。所以 `auto` 和 `responses` 不是重复：一个是按 id 自动选，一个是不管 id 都走 Responses 接口——用来对付「模型 id 和可用接口对不上」的中转站。
 
 - 默认模型是 `gpt-6-astra`，走 Responses 协议；`claude-opus-4-8[1m]`、`claude-fable-5-1[1m]` 这类 id 走 Anthropic 协议。
 - Responses 协议：`Authorization: Bearer <token>`，请求体为 `{"model", "input", "max_output_tokens", "stream": false}`，回复从 `output_text` 或 `output[].content[].text` 中取。
