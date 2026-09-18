@@ -26,6 +26,11 @@ on:
         required: false
         default: 'auto'
 
+      slow_interval_min:
+        description: 'After the first healthy answer, keep alive every N minutes (only applies when interval is set; 0 = stay fast)'
+        required: false
+        default: '30'
+
 jobs:
   keepalive-once:
     runs-on: ubuntu-latest
@@ -55,6 +60,7 @@ jobs:
           MODEL: ${{ github.event.inputs.model || 'gpt-6-astra' }}
           PROTOCOL: ${{ github.event.inputs.protocol || 'auto' }}
           REQUEST_INTERVAL_SEC: ${{ github.event.inputs.interval || '' }}
+          SLOW_INTERVAL_MIN: ${{ github.event.inputs.slow_interval_min || '30' }}
           QQ_EMAIL: ${{ secrets.QQ_EMAIL }}
           QQ_SMTP_AUTH_CODE: ${{ secrets.QQ_SMTP_AUTH_CODE }}
           CI: "true"

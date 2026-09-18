@@ -8,6 +8,8 @@
 #   REQUEST_INTERVAL_SEC - seconds between two consecutive requests; when set it
 #                          wins over the defaults below and is used both between
 #                          tokens and between rounds (blank = legacy pacing)
+#   SLOW_INTERVAL_MIN    - once one request comes back healthy, slow down to this
+#                          keepalive pace in minutes (default 30, 0 = stay fast)
 #   SLEEP_BETWEEN_TOKENS - default 30s (+/- 10s jitter) between tokens
 #   SLEEP_BETWEEN_ROUNDS - default 3000s between rounds
 set -euo pipefail
@@ -41,6 +43,20 @@ if [ -n "$REQUEST_INTERVAL_SEC" ]; then
     SLEEP_BETWEEN_TOKENS="$REQUEST_INTERVAL_SEC"
     SLEEP_BETWEEN_ROUNDS="$REQUEST_INTERVAL_SEC"
 fi
+# Slow keepalive pace to fall back to after the first healthy answer (minutes).
+# 0 disables the slow-down, and it only kicks in when a fast interval is set.
+SLOW_INTERVAL_MIN="${SLOW_INTERVAL_MIN:-30}"
+case "$SLOW_INTERVAL_MIN" in
+    *[!0-9]*)
+        echo "ERROR: SLOW_INTERVAL_MIN must be a whole number of minutes (got '$SLOW_INTERVAL_MIN')" >&2
+        exit 1
+        ;;
+esac
+SLOW_INTERVAL_SEC=$(( SLOW_INTERVAL_MIN * 60 ))
+if [ -z "$REQUEST_INTERVAL_SEC" ]; then
+    SLOW_INTERVAL_SEC=0
+fi
+SLOWDOWN_ACTIVE=false
 MAX_DURATION_SEC="${MAX_DURATION_SEC:-21500}"               # ~5h58m (just under 6h limit)
 QQ_EMAIL="${QQ_EMAIL:-}"
 QQ_SMTP_AUTH_CODE="${QQ_SMTP_AUTH_CODE:-}"
@@ -130,6 +146,11 @@ echo "Base URL: $BASE_URL"
 echo "Model: $MODEL"
 if [ -n "$REQUEST_INTERVAL_SEC" ]; then
     echo "Request interval: ${REQUEST_INTERVAL_SEC}s (fixed, no jitter)"
+    if [ "$SLOW_INTERVAL_SEC" -gt 0 ]; then
+        echo "Slow-down after first success: ${SLOW_INTERVAL_MIN}min keepalive pace"
+    else
+        echo "Slow-down after first success: disabled"
+    fi
 fi
 echo ""
 
@@ -175,6 +196,16 @@ while true; do
             echo "  ✓ $token_preview is active"
             ROUND_RESULTS+="  ✓ $token_preview is active"$'\n'
             ROUND_SUCCESS=$((ROUND_SUCCESS + 1))
+
+            # First healthy answer: stop hammering and keep the account warm at
+            # the slow pace instead (rounds become SLOW_INTERVAL_SEC apart, so
+            # every token is exercised once per SLOW_INTERVAL_MIN minutes).
+            if [ "$SLOWDOWN_ACTIVE" = false ] && [ "$SLOW_INTERVAL_SEC" -gt 0 ]; then
+                SLOWDOWN_ACTIVE=true
+                SLEEP_BETWEEN_ROUNDS="$SLOW_INTERVAL_SEC"
+                echo "  >>> First healthy answer - slowing down to a ${SLOW_INTERVAL_MIN}min keepalive pace"
+                ROUND_RESULTS+="  >>> First healthy answer: switched to the ${SLOW_INTERVAL_MIN}min keepalive pace"$'\n'
+            fi
         else
             echo "$result"
             echo "  ✗ $token_preview failed"

@@ -146,6 +146,9 @@ PROMPTS_FILE=scripts/prompts-engineering.txt bash scripts/run-all.sh --once
 
 - **留空（默认，只输入空格也算留空）**：token 之间 30 秒 ± 10 秒随机抖动，轮与轮之间 50 分钟（Keepalive）/ 30 分钟（Recovery Monitor），与旧版本一致
 - **设为 N**：两次请求严格间隔 N 秒、不加抖动；同一轮内 token 之间如此，轮与轮之间也如此。所以只有一个 token 时，就是「每 N 秒发一次请求」
+- **第一次成功就自动降速**：间隔模式下，一旦**第一次拿到正常回答**（响应里有内容、不是 error），立刻切到保活节奏——之后每轮（每个 token 一次）间隔 `slow_interval_min` 分钟（Actions 输入，默认 **30**）；填 `0` 表示成功后也保持快跑。日志会打印 `>>> First healthy answer - slowing down to a 30min keepalive pace`，邮件正文里也会带上这行
+  - 这样就能「先用 5 秒间隔把账号捶热，确认活了以后每 30 分钟保活一次」，不用全程高频
+  - 只对 Keepalive / Keepalive Once 生效；Recovery Monitor 全通即退出，不需要降速
 
 ```bash
 # 每 10 秒发一次请求，跑完一轮就退出
@@ -155,6 +158,18 @@ REQUEST_INTERVAL_SEC=10 bash scripts/run-all.sh --once
 REQUEST_INTERVAL_SEC=60 MAX_DURATION_SEC=3600 bash scripts/monitor-recovery.sh
 
 # Actions：Actions -> Run workflow -> interval 填 30
+```
+
+降速节奏也可以单独调：
+
+```bash
+# 快跑阶段 5 秒一次，第一次成功之后改成每 10 分钟保活一次
+REQUEST_INTERVAL_SEC=5 SLOW_INTERVAL_MIN=10 bash scripts/run-all.sh
+
+# 成功后也一直保持 5 秒一次（不降速）
+REQUEST_INTERVAL_SEC=5 SLOW_INTERVAL_MIN=0 bash scripts/run-all.sh
+
+# 只对 Keepalive / Keepalive Once 生效；Recovery Monitor 全通即退出
 ```
 
 间隔越小请求越密集（例如 10 秒 + 6 小时容器 ≈ 2000 次请求），可能触发中转站限流或消耗额度；建议配合 `--once` 或较小的 `MAX_DURATION_SEC` 使用。

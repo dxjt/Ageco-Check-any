@@ -368,3 +368,55 @@ MOCK
     [ "$status" -eq 1 ]
     [[ "$output" == *"FAILED (Claude error: 当前模型 claude-opus-4-8[1m] 负载已经达到上限"* ]]
 }
+
+@test "run-all.sh slows down to the keepalive pace after the first healthy answer" {
+    cat > "$TEST_DIR/mock_bin/curl" << 'MOCK'
+#!/usr/bin/env bash
+echo '{"id":"resp_ok","object":"response","status":"completed","output_text":"ok"}'
+MOCK
+    chmod +x "$TEST_DIR/mock_bin/curl"
+
+    export ANYROUTER_TOKENS="sk-testAAA
+sk-testBBB"
+    run timeout 25 env REQUEST_INTERVAL_SEC=1 SLOW_INTERVAL_MIN=1 bash scripts/run-all.sh
+    [[ "$output" == *"Slow-down after first success: 1min keepalive pace"* ]]
+    [[ "$output" == *">>> First healthy answer - slowing down to a 1min keepalive pace"* ]]
+    [[ "$output" == *"Sleeping 60s until round 2"* ]]
+}
+
+@test "run-all.sh records the slow-down in the report body" {
+    cat > "$TEST_DIR/mock_bin/curl" << 'MOCK'
+#!/usr/bin/env bash
+echo '{"id":"resp_ok","object":"response","status":"completed","output_text":"ok"}'
+MOCK
+    chmod +x "$TEST_DIR/mock_bin/curl"
+
+    export ANYROUTER_TOKENS="sk-testAAA
+sk-testBBB"
+    run env REQUEST_INTERVAL_SEC=1 SLOW_INTERVAL_MIN=1 MAX_DURATION_SEC=3 bash scripts/run-all.sh
+    [ "$status" -eq 0 ]
+    [[ "$output" == *">>> First healthy answer: switched to the 1min keepalive pace"* ]]
+    [[ "$output" == *"Round 1 summary: 2 success, 0 failed"* ]]
+}
+
+@test "run-all.sh keeps the fast pace when the slow-down is disabled" {
+    cat > "$TEST_DIR/mock_bin/curl" << 'MOCK'
+#!/usr/bin/env bash
+echo '{"id":"resp_ok","object":"response","status":"completed","output_text":"ok"}'
+MOCK
+    chmod +x "$TEST_DIR/mock_bin/curl"
+
+    export ANYROUTER_TOKENS="sk-testAAA
+sk-testBBB"
+    run timeout 25 env REQUEST_INTERVAL_SEC=1 SLOW_INTERVAL_MIN=0 bash scripts/run-all.sh
+    [[ "$output" == *"Slow-down after first success: disabled"* ]]
+    [[ "$output" != *"slowing down to a"* ]]
+    [[ "$output" == *"Sleeping 1s until round 2"* ]]
+}
+
+@test "run-all.sh rejects a non-numeric SLOW_INTERVAL_MIN" {
+    export ANYROUTER_TOKENS="sk-testAAA"
+    run env REQUEST_INTERVAL_SEC=1 SLOW_INTERVAL_MIN=soon bash scripts/run-all.sh --once
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"SLOW_INTERVAL_MIN must be a whole number of minutes"* ]]
+}
