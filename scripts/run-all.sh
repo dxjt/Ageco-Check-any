@@ -109,8 +109,16 @@ EOF
 
     echo "  Sending email via QQ SMTP to $QQ_EMAIL ..."
 
+    # SMTP_DEBUG=true (Actions: smtp_debug) prints the raw SMTP conversation,
+    # which is the fastest way to see why QQ rejects a message.
+    local curl_opts=()
+    if [ "${SMTP_DEBUG:-}" = "true" ]; then
+        curl_opts+=(-v)
+        echo "  (SMTP_DEBUG: printing the raw SMTP conversation)"
+    fi
+
     local curl_exit=0
-    curl -sS --ssl-reqd --fail-with-body \
+    curl -sS --ssl-reqd --fail-with-body ${curl_opts[@]+"${curl_opts[@]}"} \
         --url "smtps://smtp.qq.com:465" \
         --user "$QQ_EMAIL:$QQ_SMTP_AUTH_CODE" \
         --login-options "AUTH=LOGIN" \
@@ -130,6 +138,7 @@ EOF
         echo "    - QQ_SMTP_AUTH_CODE is wrong (it is NOT your QQ password)"
         echo "    - Generate it at: QQ Mail -> Settings -> Account -> POP3/IMAP/SMTP"
         echo "    - Network/firewall blocking smtps://smtp.qq.com:465"
+        echo "    - Run again with SMTP_DEBUG=true (Actions input: smtp_debug) to see QQ's raw reply"
         return 1
     fi
 }

@@ -420,3 +420,21 @@ sk-testBBB"
     [ "$status" -eq 1 ]
     [[ "$output" == *"SLOW_INTERVAL_MIN must be a whole number of minutes"* ]]
 }
+
+@test "run-all.sh can print the raw SMTP conversation when SMTP_DEBUG=true" {
+    cat > "$TEST_DIR/mock_bin/curl" << 'MOCK'
+#!/usr/bin/env bash
+if [ "${1:-}" = "--version" ]; then
+    echo "curl 8.5.0 (x86_64) libcurl/8.5.0 OpenSSL zlib ... smtp"
+    exit 0
+fi
+echo "mock curl: $*" >&2
+exit 55
+MOCK
+    chmod +x "$TEST_DIR/mock_bin/curl"
+
+    export ANYROUTER_TOKENS="sk-testAAA"
+    run env QQ_EMAIL="someone@qq.com" QQ_SMTP_AUTH_CODE="fakecode" SMTP_DEBUG=true bash scripts/run-all.sh --once
+    [[ "$output" == *"SMTP_DEBUG: printing the raw SMTP conversation"* ]]
+    [[ "$output" == *"Email FAILED (curl exit: 55)"* ]]
+}

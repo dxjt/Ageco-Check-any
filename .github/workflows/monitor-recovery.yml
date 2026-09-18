@@ -25,6 +25,15 @@ on:
         description: 'Install CLIs before running: auto (only what the protocol needs) | yes (Claude + Codex) | no (skip)'
         required: false
         default: 'auto'
+      slow_interval_min:
+        description: 'After the first healthy answer, keep alive every N minutes (only applies when interval is set; 0 = stay fast)'
+        required: false
+        default: '30'
+
+      smtp_debug:
+        description: 'Print the raw SMTP conversation when sending the report email (true/false)'
+        required: false
+        default: 'false'
 
 # Prevent concurrent runs stacking up
 concurrency:
@@ -60,6 +69,7 @@ jobs:
           MODEL: ${{ github.event.inputs.model || 'gpt-6-astra' }}
           PROTOCOL: ${{ github.event.inputs.protocol || 'auto' }}
           REQUEST_INTERVAL_SEC: ${{ github.event.inputs.interval || '' }}
+          SMTP_DEBUG: ${{ github.event.inputs.smtp_debug || 'false' }}
           QQ_EMAIL: ${{ secrets.QQ_EMAIL }}
           QQ_SMTP_AUTH_CODE: ${{ secrets.QQ_SMTP_AUTH_CODE }}
           CI: "true"
