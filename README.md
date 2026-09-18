@@ -12,13 +12,13 @@
 
 ## 工作原理
 
-Anyrouter 的调度策略疑似为**账号级先来先用**。如果账号长时间没有请求，可能在队列中失去优先级。本项目通过定时发起轻量 Claude API 调用让账号保持活跃。
+Anyrouter 的调度策略疑似为**账号级先来先用**。如果账号长时间没有请求，可能在队列中失去优先级。本项目通过定时发起轻量 API 调用让账号保持活跃（默认模型 `gpt-6-astra`，走 OpenAI Responses 协议；换成 `claude-*` 模型则走 Anthropic 协议）。
 
 ### Keepalive（保活）
 
 - 每天 **UTC 18:00（北京时间 02:00）** 启动一个 GitHub Actions 容器
 - 容器内部每 **50 分钟** 轮询一遍所有 token（避免 6 小时限制）
-- 每个 token 发送一条随机的真实工程提问，使用 `claude -p` 模式
+- 每个 token 发送一条随机的真实工程提问：默认用 `curl` 直连 `/v1/responses`，Claude 模型则用 `claude -p` 模式
 - 在接近 6 小时限制时自动发送汇总报告邮件
 - 可选通过 QQ 邮箱接收最终报告
 
@@ -62,7 +62,7 @@ sk-ant-xxx333
 | 保活（单次） | Actions → Anyrouter Keepalive (Once) → Run workflow |
 | 恢复监控 | Actions → Anyrouter Recovery Monitor → Run workflow |
 
-**恢复监控**在手动触发时可自定义 `base_url`、`model` 和 `protocol`，默认使用 `opus[1m]` + FC 端点。
+**恢复监控**在手动触发时可自定义 `base_url`、`model` 和 `protocol`，默认使用 `gpt-6-astra`（Responses 协议）。
 
 ## 模型与协议
 
@@ -71,14 +71,16 @@ sk-ant-xxx333
 | PROTOCOL | 模型 id | 走的通道 |
 |---|---|---|
 | `auto`（默认） | 以 `claude` 开头 | Anthropic Messages API（Claude Code CLI + `~/.claude/settings.json`） |
-| `auto`（默认） | 其他任意 id | OpenAI 兼容协议 `POST {BASE_URL}/v1/chat/completions` |
+| `auto`（默认） | 其他任意 id | OpenAI Responses API `POST {BASE_URL}/v1/responses` |
 | `anthropic` | 强制 | Anthropic Messages API |
-| `openai` | 强制 | OpenAI 兼容协议（curl 直连，不依赖 Claude CLI） |
+| `responses` | 强制 | OpenAI Responses API（curl 直连，不依赖 Claude CLI） |
+| `openai` | 强制 | 旧的 Chat Completions API `POST {BASE_URL}/v1/chat/completions` |
 
-- `claude-opus-4-8[1m]`、`claude-fable-5-1[1m]` 这类 id 走 Anthropic 协议。
-- `gpt-6-astra` 这类 OpenAI 格式的 id 自动走 OpenAI 协议：`Authorization: Bearer <token>`，请求体为 `{"model", "messages", "max_tokens", "stream": false}`。
-- OpenAI 通道用 `curl` 直连，不需要安装 Claude Code CLI；`MAX_TOKENS` 覆盖默认的 128，设为 `none` 则不发送该字段（适配只接受 `max_completion_tokens` 的模型）。
-- `BASE_URL` 可写成 `https://relay.example.com`、`https://relay.example.com/v1` 或完整端点，脚本都会补全成 `/v1/chat/completions`，不会重复拼接。
+- 默认模型是 `gpt-6-astra`，走 Responses 协议；`claude-opus-4-8[1m]`、`claude-fable-5-1[1m]` 这类 id 走 Anthropic 协议。
+- Responses 协议：`Authorization: Bearer <token>`，请求体为 `{"model", "input", "max_output_tokens", "stream": false}`，回复从 `output_text` 或 `output[].content[].text` 中取。
+- Chat Completions 协议：请求体为 `{"model", "messages", "max_tokens", "stream": false}`，回复从 `choices[0].message.content` 中取。
+- OpenAI 系通道用 `curl` 直连，不需要安装 Claude Code CLI；`MAX_TOKENS` 覆盖默认的 128，设为 `none` 则不发送 token 上限字段。
+- `BASE_URL` 可写成 `https://relay.example.com`、`https://relay.example.com/v1` 或完整端点，脚本都会补全成 `/v1/responses`（或 `/v1/chat/completions`），不会重复拼接。
 - 只要响应里没有 assistant 内容（例如返回 `{"error": ...}`），该 token 即判定为不可用；失败行的 `relay error:` 会带上中转站返回的原始错误。
 - 中转站返回 `{"error":"当前 API 不支持所选模型 xxx"}` 说明该站点没有这个模型：先用 `bash scripts/list-models.sh <token> [base_url]` 查出它实际接受的 id，或把 `BASE_URL` 换成真正提供该模型的站点。
 
@@ -135,15 +137,18 @@ MAX_DURATION_SEC=60 bash scripts/run-all.sh
 ### 用 OpenAI 格式的模型测活（如 gpt-6-astra）
 
 ```bash
-# 模型 id 不是 claude-*，自动切到 OpenAI 协议（/v1/chat/completions）
+# 模型 id 不是 claude-*，自动切到 OpenAI Responses 协议（/v1/responses）
 export ANYROUTER_TOKENS="sk-your-relay-key"
 
 # 先查该站点支持哪些模型 id（任何 OpenAI 兼容站点都适用）
 bash scripts/list-models.sh "$ANYROUTER_TOKENS"
-MODEL="gpt-6-astra" bash scripts/keepalive.sh "$ANYROUTER_TOKENS"
+
+# gpt-6-astra 是默认模型，直接跑就走 Responses 协议
+bash scripts/keepalive.sh "$ANYROUTER_TOKENS"
 
 # 或显式指定协议
-PROTOCOL=openai MODEL="gpt-6-astra" bash scripts/keepalive.sh "$ANYROUTER_TOKENS"
+PROTOCOL=responses MODEL="gpt-6-astra" bash scripts/keepalive.sh "$ANYROUTER_TOKENS"
+PROTOCOL=openai MODEL="gpt-6-astra" bash scripts/keepalive.sh "$ANYROUTER_TOKENS"   # 旧 chat-completions 接口
 PROTOCOL=anthropic MODEL="claude-opus-4-8[1m]" bash scripts/keepalive.sh "$ANYROUTER_TOKENS"
 
 # 批量 / 恢复监控同样生效（MODEL、PROTOCOL 走环境变量）

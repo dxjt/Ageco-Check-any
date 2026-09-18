@@ -15,7 +15,7 @@ fi
 
 # --- Configuration ---
 BASE_URL="${BASE_URL:-https://anyrouter.top}"
-MODEL="${MODEL:-claude-opus-4-8[1m]}"
+MODEL="${MODEL:-gpt-6-astra}"
 SLEEP_BETWEEN_TOKENS="${SLEEP_BETWEEN_TOKENS:-30}"         # seconds between tokens
 SLEEP_BETWEEN_ROUNDS="${SLEEP_BETWEEN_ROUNDS:-3000}"       # ~50 minutes between rounds
 MAX_DURATION_SEC="${MAX_DURATION_SEC:-21500}"               # ~5h58m (just under 6h limit)

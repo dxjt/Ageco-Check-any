@@ -5,9 +5,10 @@
 # Protocol selection (PROTOCOL env var):
 #   auto (default) - model ids starting with "claude" use the Anthropic Messages
 #                    API through the Claude Code CLI; any other model id uses
-#                    the OpenAI-compatible /v1/chat/completions endpoint
+#                    the OpenAI Responses API at /v1/responses
 #   anthropic      - force Claude Code CLI (Anthropic Messages API)
-#   openai         - force a direct curl call to /v1/chat/completions
+#   responses      - force the OpenAI Responses API at /v1/responses
+#   openai         - force the legacy chat-completions API at /v1/chat/completions
 #
 # Other env vars: MAX_TOKENS (default 128, "none" to omit the field),
 #                 TIMEOUT_SEC (default 120)
@@ -17,7 +18,7 @@ set -euo pipefail
 
 TOKEN="${1:?Usage: $0 <token> [base_url] [model]}"
 BASE_URL="${2:-https://anyrouter.top}"
-MODEL="${3:-claude-opus-4-8[1m]}"
+MODEL="${3:-gpt-6-astra}"
 PROTOCOL="${PROTOCOL:-auto}"
 MAX_TOKENS="${MAX_TOKENS:-128}"
 TIMEOUT_SEC="${TIMEOUT_SEC:-120}"
@@ -29,13 +30,13 @@ PROMPTS_FILE="$SCRIPT_DIR/prompts.txt"
 if [ "$PROTOCOL" = "auto" ]; then
     case "$MODEL" in
         claude*) PROTOCOL="anthropic" ;;
-        *)       PROTOCOL="openai" ;;
+        *)       PROTOCOL="responses" ;;
     esac
 fi
 case "$PROTOCOL" in
-    anthropic|openai) ;;
+    anthropic|responses|openai) ;;
     *)
-        echo "  FAILED (unknown PROTOCOL '$PROTOCOL', expected auto|anthropic|openai)" >&2
+        echo "  FAILED (unknown PROTOCOL '$PROTOCOL', expected auto|anthropic|responses|openai)" >&2
         exit 1
         ;;
 esac
@@ -57,14 +58,15 @@ pick_prompt() {
 }
 
 # --- OpenAI-compatible helpers ---
-# Build the chat-completions URL from BASE_URL.
-# Accepts https://host, https://host/, https://host/v1 or a full endpoint URL.
-openai_chat_url() {
-    local base="${1%/}"
+# Build the endpoint URL from BASE_URL for a given path ("responses" or
+# "chat/completions"). Accepts https://host, https://host/, https://host/v1
+# or an already complete endpoint URL.
+api_endpoint() {
+    local base="${1%/}" path="$2"
     case "$base" in
-        */chat/completions) printf '%s' "$base" ;;
-        */v1)               printf '%s/chat/completions' "$base" ;;
-        *)                  printf '%s/v1/chat/completions' "$base" ;;
+        */"$path") printf '%s' "$base" ;;
+        */v1)      printf '%s/%s' "$base" "$path" ;;
+        *)         printf '%s/v1/%s' "$base" "$path" ;;
     esac
 }
 
@@ -98,12 +100,41 @@ build_chat_body() {
     fi
 }
 
-# Extract the assistant text from a chat-completions response (best effort without jq)
-extract_chat_content() {
+# Build the Responses API request body (jq when available, manual escaping otherwise)
+build_responses_body() {
+    if command -v jq >/dev/null 2>&1; then
+        if [ "$MAX_TOKENS" = "none" ]; then
+            jq -nc --arg model "$MODEL" --arg input "$PROMPT" \
+                '{model:$model, input:$input, stream:false}'
+        else
+            jq -nc --arg model "$MODEL" --arg input "$PROMPT" --argjson max "$MAX_TOKENS" \
+                '{model:$model, input:$input, max_output_tokens:$max, stream:false}'
+        fi
+    elif [ "$MAX_TOKENS" = "none" ]; then
+        printf '{"model":"%s","input":"%s","stream":false}' \
+            "$(json_escape "$MODEL")" "$(json_escape "$PROMPT")"
+    else
+        printf '{"model":"%s","input":"%s","max_output_tokens":%s,"stream":false}' \
+            "$(json_escape "$MODEL")" "$(json_escape "$PROMPT")" "$MAX_TOKENS"
+    fi
+}
+
+# Extract the assistant text from an OpenAI-style response (best effort without jq).
+# Responses API: output_text, or output[].content[].text
+# Chat Completions: choices[0].message.content
+extract_openai_content() {
     local body="$1"
     if command -v jq >/dev/null 2>&1; then
-        printf '%s' "$body" | jq -r '.choices[0].message.content // empty' 2>/dev/null || true
-    elif printf '%s' "$body" | grep -q '"choices"'; then
+        if [ "$PROTOCOL" = "responses" ]; then
+            printf '%s' "$body" | jq -r '
+                if (.output_text // "") != "" then .output_text
+                else ([.output[]? | select(.type == "message") | .content[]?
+                       | select(.type == "output_text") | .text] | join(" "))
+                end' 2>/dev/null || true
+        else
+            printf '%s' "$body" | jq -r '.choices[0].message.content // empty' 2>/dev/null || true
+        fi
+    elif printf '%s' "$body" | grep -qE '"output_text"|"type":"message"|"choices"'; then
         printf '%s' "$body"
     fi
     return 0
@@ -129,12 +160,18 @@ EXIT_CODE=0
 SETTINGS_FILE=""
 API_LABEL="Claude"
 
-if [ "$PROTOCOL" = "openai" ]; then
-    # OpenAI-compatible path: direct HTTP call to /v1/chat/completions
-    API_LABEL="OpenAI"
-    CHAT_URL=$(openai_chat_url "$BASE_URL")
-    REQUEST_BODY=$(build_chat_body)
-    curl -sS --max-time "$TIMEOUT_SEC" -X POST "$CHAT_URL" \
+if [ "$PROTOCOL" != "anthropic" ]; then
+    # OpenAI-compatible path: direct HTTP call to /v1/responses or /v1/chat/completions
+    if [ "$PROTOCOL" = "responses" ]; then
+        API_LABEL="OpenAI Responses"
+        REQUEST_BODY=$(build_responses_body)
+        API_URL=$(api_endpoint "$BASE_URL" "responses")
+    else
+        API_LABEL="OpenAI Chat"
+        REQUEST_BODY=$(build_chat_body)
+        API_URL=$(api_endpoint "$BASE_URL" "chat/completions")
+    fi
+    curl -sS --max-time "$TIMEOUT_SEC" -X POST "$API_URL" \
         -H "Authorization: Bearer $TOKEN" \
         -H "Content-Type: application/json" \
         -d "$REQUEST_BODY" > "$OUTPUT_FILE" 2>&1 || EXIT_CODE=$?
@@ -190,9 +227,9 @@ if [ -z "$OUTPUT_CONTENT" ]; then
     exit 1
 fi
 
-# 3. OpenAI path: the body must carry assistant content
-if [ "$PROTOCOL" = "openai" ]; then
-    if [ -z "$(extract_chat_content "$OUTPUT_CONTENT")" ]; then
+# 3. OpenAI-style paths: the body must carry assistant content
+if [ "$PROTOCOL" != "anthropic" ]; then
+    if [ -z "$(extract_openai_content "$OUTPUT_CONTENT")" ]; then
         RELAY_ERROR=$(extract_error_message "$OUTPUT_CONTENT")
         if [ -n "$RELAY_ERROR" ]; then
             echo "  FAILED (relay error: $RELAY_ERROR)"

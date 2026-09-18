@@ -31,7 +31,7 @@ teardown() {
 }
 
 @test "keepalive.sh creates and cleans up settings.json" {
-    run bash scripts/keepalive.sh "$TEST_TOKEN" "https://anyrouter.top/v1"
+    run bash scripts/keepalive.sh "$TEST_TOKEN" "https://anyrouter.top/v1" "claude-opus-4-8[1m]"
     # After run, settings.json should be cleaned up
     [ ! -f "$TEST_DIR/.claude/settings.json" ]
 }
@@ -84,22 +84,50 @@ sk-ant-testCCC"
     rm -f "$file"
 }
 
-@test "keepalive.sh routes non-claude model ids to the OpenAI protocol" {
+@test "keepalive.sh defaults to gpt-6-astra on the Responses API" {
     cat > "$TEST_DIR/mock_bin/curl" << 'MOCK'
 #!/usr/bin/env bash
-cat <<'JSON'
-{"id":"chatcmpl-test","object":"chat.completion","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}
-JSON
+echo '{"id":"resp_default","status":"completed","output_text":"ok"}'
+MOCK
+    chmod +x "$TEST_DIR/mock_bin/curl"
+
+    run bash scripts/keepalive.sh "$TEST_TOKEN" "https://relay.example.com"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"Model: gpt-6-astra"* ]]
+    [[ "$output" == *"Protocol: responses"* ]]
+    [[ "$output" == *"SUCCESS"* ]]
+}
+
+@test "keepalive.sh posts to /v1/responses with an input field" {
+    cat > "$TEST_DIR/mock_bin/curl" << 'MOCK'
+#!/usr/bin/env bash
+printf '%s\n' "$@" >> "$TEST_DIR/curl_args.txt"
+echo '{"id":"resp_test","object":"response","status":"completed","output":[{"type":"reasoning","summary":[]},{"type":"message","role":"assistant","content":[{"type":"output_text","text":"ok","annotations":[]}]}]}'
 MOCK
     chmod +x "$TEST_DIR/mock_bin/curl"
 
     run bash scripts/keepalive.sh "$TEST_TOKEN" "https://relay.example.com" "gpt-6-astra"
     [ "$status" -eq 0 ]
-    [[ "$output" == *"Protocol: openai"* ]]
+    [[ "$output" == *"Protocol: responses"* ]]
+    [[ "$output" == *"SUCCESS"* ]]
+    grep -q '/v1/responses' "$TEST_DIR/curl_args.txt"
+    grep -q '"input"' "$TEST_DIR/curl_args.txt"
+    grep -q '"max_output_tokens"' "$TEST_DIR/curl_args.txt"
+}
+
+@test "keepalive.sh accepts a Responses payload that only carries output_text" {
+    cat > "$TEST_DIR/mock_bin/curl" << 'MOCK'
+#!/usr/bin/env bash
+echo '{"id":"resp_2","object":"response","status":"completed","output_text":"hello"}'
+MOCK
+    chmod +x "$TEST_DIR/mock_bin/curl"
+
+    run bash scripts/keepalive.sh "$TEST_TOKEN" "https://relay.example.com" "gpt-6-astra"
+    [ "$status" -eq 0 ]
     [[ "$output" == *"SUCCESS"* ]]
 }
 
-@test "keepalive.sh forces the OpenAI path when PROTOCOL=openai" {
+@test "keepalive.sh forces the chat-completions path when PROTOCOL=openai" {
     cat > "$TEST_DIR/mock_bin/curl" << 'MOCK'
 #!/usr/bin/env bash
 echo '{"choices":[{"index":0,"message":{"role":"assistant","content":"ok"}}]}'
