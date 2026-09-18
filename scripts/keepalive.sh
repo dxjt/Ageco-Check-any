@@ -21,7 +21,7 @@
 # Prints ALL output (including errors, retries, stack traces) for diagnostics.
 set -euo pipefail
 
-TOKEN="${1:?Usage: $0 <token> [base_url] [model]}"
+TOKEN="${1:?用法: $0 <token> [base_url] [model]}"
 BASE_URL="${2:-https://anyrouter.top}"
 MODEL="${3:-gpt-6-astra}"
 PROTOCOL="${PROTOCOL:-auto}"
@@ -49,7 +49,7 @@ fi
 case "$PROTOCOL" in
     anthropic|responses|openai|codex) ;;
     *)
-        echo "  FAILED (unknown PROTOCOL '$PROTOCOL', expected auto|anthropic|responses|openai|codex)" >&2
+        echo "  FAILED (未知的 PROTOCOL 值 '$PROTOCOL'，可选 auto|anthropic|responses|openai|codex)" >&2
         exit 1
         ;;
 esac
@@ -58,13 +58,13 @@ esac
 case "$PROTOCOL" in
     anthropic)
         if ! command -v claude >/dev/null 2>&1; then
-            echo "  FAILED (claude CLI not found - run 'bash scripts/install-cli.sh claude', or set install_cli=yes)" >&2
+            echo "  FAILED (未找到 claude CLI - 请先运行 'bash scripts/install-cli.sh claude'，或设置 install_cli=yes)" >&2
             exit 1
         fi
         ;;
     codex)
         if ! command -v codex >/dev/null 2>&1; then
-            echo "  FAILED (codex CLI not found - run 'bash scripts/install-cli.sh codex', or set install_cli=yes)" >&2
+            echo "  FAILED (未找到 codex CLI - 请先运行 'bash scripts/install-cli.sh codex'，或设置 install_cli=yes)" >&2
             exit 1
         fi
         ;;
@@ -290,12 +290,12 @@ EOF
 fi
 
 # --- Print ALL output for diagnostics ---
-echo "  Protocol: ${PROTOCOL} | Model: ${MODEL}"
-echo "  Prompt pool: ${PROMPTS_FILE}"
-echo "  Prompt: ${PROMPT:0:60}..."
-echo "  --- ${API_LABEL} output (exit_code=$EXIT_CODE) ---"
+echo "  协议: ${PROTOCOL} | 模型: ${MODEL}"
+echo "  提示词池: ${PROMPTS_FILE}"
+echo "  提示词: ${PROMPT:0:60}..."
+echo "  --- ${API_LABEL} 输出 (exit_code=$EXIT_CODE) ---"
 cat "$OUTPUT_FILE" | sed 's/^/    /'
-echo "  --- End output ---"
+echo "  --- 输出结束 ---"
 
 CLI_ERROR=""
 if [ "$PROTOCOL" = "anthropic" ] || [ "$PROTOCOL" = "codex" ]; then
@@ -303,9 +303,9 @@ if [ "$PROTOCOL" = "anthropic" ] || [ "$PROTOCOL" = "codex" ]; then
 fi
 
 if [ -n "$LAST_MSG_FILE" ] && [ -s "$LAST_MSG_FILE" ]; then
-    echo "  --- Codex last message ---"
+    echo "  --- Codex 最终回复 ---"
     sed 's/^/    /' "$LAST_MSG_FILE"
-    echo "  --- End last message ---"
+    echo "  --- 最终回复结束 ---"
 fi
 
 # --- Evaluate result ---
@@ -333,18 +333,18 @@ fi
 # 1. Non-zero exit code is a clear failure (includes timeout exit 124)
 if [ "$EXIT_CODE" -ne 0 ]; then
     if [ -n "$CLI_ERROR" ]; then
-        echo "  FAILED (${API_LABEL} error: ${CLI_ERROR})"
+        echo "  FAILED (${API_LABEL} 报错: ${CLI_ERROR})"
     elif [ "$EXIT_CODE" -eq 124 ]; then
-        echo "  FAILED (timed out after ${TIMEOUT_SEC}s)"
+        echo "  FAILED (超时 ${TIMEOUT_SEC}s)"
     else
-        echo "  FAILED (non-zero exit: $EXIT_CODE)"
+        echo "  FAILED (退出码非零: $EXIT_CODE)"
     fi
     exit 1
 fi
 
 # 2. Empty response is a failure
 if [ -z "$OUTPUT_CONTENT" ]; then
-    echo "  FAILED (empty response)"
+    echo "  FAILED (响应内容为空)"
     exit 1
 fi
 
@@ -354,9 +354,9 @@ if [ "$PROTOCOL" = "responses" ] || [ "$PROTOCOL" = "openai" ]; then
     if [ -z "$(extract_openai_content "$OUTPUT_CONTENT")" ]; then
         RELAY_ERROR=$(extract_error_message "$OUTPUT_CONTENT")
         if [ -n "$RELAY_ERROR" ]; then
-            echo "  FAILED (relay error: $RELAY_ERROR)"
+            echo "  FAILED (中转站报错: $RELAY_ERROR)"
         else
-            echo "  FAILED (no assistant content in OpenAI response)"
+            echo "  FAILED (OpenAI 响应里没有 assistant 内容)"
         fi
         exit 1
     fi

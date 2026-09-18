@@ -101,7 +101,7 @@ Actions 里用 `install_cli` 输入决定跑之前装不装：
 |---|---|
 | `auto`（默认） | 只装这次协议需要的：`anthropic` / `claude*` 装 Claude CLI，`codex` 装 Codex CLI；`responses` / `openai` 什么都不装（最快，约 2 秒跑完） |
 | `yes` | Claude CLI 和 Codex CLI 都装（两个都能用，切换协议不用重跑） |
-| `no` | 都不装：依赖 runner 上已存在；缺 CLI 时脚本会直接报 `claude CLI not found` / `codex CLI not found` |
+| `no` | 都不装：依赖 runner 上已存在；缺 CLI 时脚本会直接报 `未找到 claude CLI` / `未找到 codex CLI` |
 
 - Codex CLI 走的是流式请求（`stream: true`），中转站必须支持 SSE 流式返回；只支持整包返回的站点会报 `stream disconnected before completion`，那种情况用 `PROTOCOL=responses` 的 curl 直连即可。
 - Codex CLI 会把请求发到 `{BASE_URL}/v1/responses`（`wire_api = "responses"`），并带上一堆工具定义，报文比 curl 探针大得多；只想测「账号是否活着」建议还是用默认的 `responses`。
@@ -113,7 +113,7 @@ Actions 里用 `install_cli` 输入决定跑之前装不装：
 - Chat Completions 协议：请求体为 `{"model", "messages", "max_tokens", "stream": false}`，回复从 `choices[0].message.content` 中取。
 - OpenAI 系通道用 `curl` 直连，不需要安装 Claude Code CLI；`MAX_TOKENS` 覆盖默认的 128，设为 `none` 则不发送 token 上限字段。
 - `BASE_URL` 可写成 `https://relay.example.com`、`https://relay.example.com/v1` 或完整端点，脚本都会补全成 `/v1/responses`（或 `/v1/chat/completions`），不会重复拼接。
-- 只要响应里没有 assistant 内容（例如返回 `{"error": ...}`），该 token 即判定为不可用；失败行的 `relay error:` 会带上中转站返回的原始错误。
+- 只要响应里没有 assistant 内容（例如返回 `{"error": ...}`），该 token 即判定为不可用；失败行的 `中转站报错:` 会带上中转站返回的原始错误。
 - 中转站返回 `{"error":"当前 API 不支持所选模型 xxx"}` 说明该站点没有这个模型：先用 `bash scripts/list-models.sh <token> [base_url]` 查出它实际接受的 id，或把 `BASE_URL` 换成真正提供该模型的站点。
 
 ## Prompt 池与请求间隔
@@ -146,7 +146,7 @@ PROMPTS_FILE=scripts/prompts-engineering.txt bash scripts/run-all.sh --once
 
 - **留空（默认，只输入空格也算留空）**：token 之间 30 秒 ± 10 秒随机抖动，轮与轮之间 50 分钟（Keepalive）/ 30 分钟（Recovery Monitor），与旧版本一致
 - **设为 N**：两次请求严格间隔 N 秒、不加抖动；同一轮内 token 之间如此，轮与轮之间也如此。所以只有一个 token 时，就是「每 N 秒发一次请求」
-- **第一次成功就自动降速**：间隔模式下，一旦**第一次拿到正常回答**（响应里有内容、不是 error），立刻切到保活节奏——之后每轮（每个 token 一次）间隔 `slow_interval_min` 分钟（Actions 输入，默认 **30**）；填 `0` 表示成功后也保持快跑。日志会打印 `>>> First healthy answer - slowing down to a 30min keepalive pace`，邮件正文里也会带上这行
+- **第一次成功就自动降速**：间隔模式下，一旦**第一次拿到正常回答**（响应里有内容、不是 error），立刻切到保活节奏——之后每轮（每个 token 一次）间隔 `slow_interval_min` 分钟（Actions 输入，默认 **30**）；填 `0` 表示成功后也保持快跑。日志会打印 `>>> 首次收到正常回复 - 降速到 30 分钟保活节奏`，邮件正文里也会带上这行
   - 这样就能「先用 5 秒间隔把账号捶热，确认活了以后每 30 分钟保活一次」，不用全程高频
   - 只对 Keepalive / Keepalive Once 生效；Recovery Monitor 全通即退出，不需要降速
 

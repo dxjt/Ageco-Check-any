@@ -36,7 +36,7 @@ REQUEST_INTERVAL_SEC="$(printf '%s' "$REQUEST_INTERVAL_SEC" | tr -d '[:space:]')
 if [ -n "$REQUEST_INTERVAL_SEC" ]; then
     case "$REQUEST_INTERVAL_SEC" in
         *[!0-9]*)
-            echo "ERROR: REQUEST_INTERVAL_SEC must be a whole number of seconds (got '$REQUEST_INTERVAL_SEC')" >&2
+            echo "ERROR: REQUEST_INTERVAL_SEC 必须是整数秒（当前值 '$REQUEST_INTERVAL_SEC'）" >&2
             exit 1
             ;;
     esac
@@ -48,7 +48,7 @@ fi
 SLOW_INTERVAL_MIN="${SLOW_INTERVAL_MIN:-30}"
 case "$SLOW_INTERVAL_MIN" in
     *[!0-9]*)
-        echo "ERROR: SLOW_INTERVAL_MIN must be a whole number of minutes (got '$SLOW_INTERVAL_MIN')" >&2
+        echo "ERROR: SLOW_INTERVAL_MIN 必须是整数分钟（当前值 '$SLOW_INTERVAL_MIN'）" >&2
         exit 1
         ;;
 esac
@@ -77,7 +77,7 @@ load_tokens() {
             return
         fi
     fi
-    echo "ERROR: No tokens found. Set ANYROUTER_TOKENS env var or create .env file." >&2
+    echo "ERROR: 没有找到 token。请设置 ANYROUTER_TOKENS 环境变量，或创建 .env 文件。" >&2
     exit 1
 }
 
@@ -85,13 +85,13 @@ load_tokens() {
 send_email() {
     local subject="$1" body="$2"
     if [ -z "$QQ_EMAIL" ] || [ -z "$QQ_SMTP_AUTH_CODE" ]; then
-        echo "  (Skipping email: QQ_EMAIL or QQ_SMTP_AUTH_CODE not configured)"
+        echo "  (跳过邮件: 未配置 QQ_EMAIL 或 QQ_SMTP_AUTH_CODE)"
         return 0
     fi
 
     # Verify curl supports SMTP (GitHub Actions curl usually does)
     if ! curl --version 2>/dev/null | grep -qi "smtp"; then
-        echo "  Email failed: curl was not compiled with SMTP support"
+        echo "  邮件发送失败: 当前 curl 未编译 SMTP 支持"
         return 1
     fi
 
@@ -107,14 +107,14 @@ Content-Type: text/plain; charset=utf-8
 $body
 EOF
 
-    echo "  Sending email via QQ SMTP to $QQ_EMAIL ..."
+    echo "  正在通过 QQ SMTP 发邮件到 $QQ_EMAIL ..."
 
     # SMTP_DEBUG=true (Actions: smtp_debug) prints the raw SMTP conversation,
     # which is the fastest way to see why QQ rejects a message.
     local curl_opts=()
     if [ "${SMTP_DEBUG:-}" = "true" ]; then
         curl_opts+=(-v)
-        echo "  (SMTP_DEBUG: printing the raw SMTP conversation)"
+        echo "  (SMTP_DEBUG: 打印原始 SMTP 会话)"
     fi
 
     local curl_exit=0 url
@@ -138,22 +138,22 @@ EOF
         if [ "$curl_exit" -eq 0 ]; then
             break
         fi
-        echo "  Send via ${url} failed (curl exit: $curl_exit)"
+        echo "  通过 ${url} 发送失败 (curl 退出码: $curl_exit)"
     done
 
     rm -f "$mail_file"
 
     if [ "$curl_exit" -eq 0 ]; then
-        echo "  Email sent to $QQ_EMAIL"
+        echo "  邮件已发送到 $QQ_EMAIL"
         return 0
     else
-        echo "  Email FAILED (curl exit: $curl_exit)"
-        echo "  Common causes:"
-        echo "    - QQ_SMTP_AUTH_CODE is wrong (it is NOT your QQ password)"
-        echo "    - Generate it at: QQ Mail -> Settings -> Account -> POP3/IMAP/SMTP"
-        echo "    - Network/firewall blocking smtps://smtp.qq.com:465"
-        echo "    - QQ refuses to send from cloud IPs (GitHub runners): set SMTP_URL to another provider"
-        echo "    - Run again with SMTP_DEBUG=true (Actions input: smtp_debug) to see QQ's raw reply"
+        echo "  邮件发送 FAILED (curl 退出码: $curl_exit)"
+        echo "  常见原因:"
+        echo "    - QQ_SMTP_AUTH_CODE 不对（它不是 QQ 密码，而是授权码）"
+        echo "    - 生成位置: QQ 邮箱 -> 设置 -> 账号 -> POP3/IMAP/SMTP 服务"
+        echo "    - 网络/防火墙拦住了 smtps://smtp.qq.com:465"
+        echo "    - QQ 拒绝从机房 IP（GitHub runner）发信: 请把 SMTP_URL 换成别的邮箱服务"
+        echo "    - 用 SMTP_DEBUG=true（Actions 输入 smtp_debug）重跑，可看到 QQ 的原始回复"
         return 1
     fi
 }
@@ -162,18 +162,18 @@ EOF
 TOKENS_DATA=$(load_tokens)
 mapfile -t TOKENS <<< "$TOKENS_DATA"
 if [ ${#TOKENS[@]} -eq 0 ]; then
-    echo "ERROR: No tokens loaded. Exiting." >&2
+    echo "ERROR: 没有加载到 token，退出。" >&2
     exit 1
 fi
-echo "Loaded ${#TOKENS[@]} token(s)"
-echo "Base URL: $BASE_URL"
-echo "Model: $MODEL"
+echo "已加载 ${#TOKENS[@]} 个 token"
+echo "接口地址: $BASE_URL"
+echo "模型: $MODEL"
 if [ -n "$REQUEST_INTERVAL_SEC" ]; then
-    echo "Request interval: ${REQUEST_INTERVAL_SEC}s (fixed, no jitter)"
+    echo "请求间隔: ${REQUEST_INTERVAL_SEC}s（固定，无抖动）"
     if [ "$SLOW_INTERVAL_SEC" -gt 0 ]; then
-        echo "Slow-down after first success: ${SLOW_INTERVAL_MIN}min keepalive pace"
+        echo "首次成功后降速: ${SLOW_INTERVAL_MIN} 分钟保活节奏"
     else
-        echo "Slow-down after first success: disabled"
+        echo "首次成功后降速: 已禁用"
     fi
 fi
 echo ""
@@ -189,13 +189,13 @@ while true; do
     REMAINING=$((MAX_DURATION_SEC - ELAPSED))
 
     if [ "$REMAINING" -le 0 ]; then
-        echo "=== Time limit reached. Exiting. ==="
+        echo "=== 达到时间上限，退出 ==="
         break
     fi
 
     echo "========================================"
-    echo " Round $ROUND  |  $(date '+%Y-%m-%d %H:%M:%S %Z')"
-    echo " Elapsed: ${ELAPSED}s  |  Remaining: ~${REMAINING}s"
+    echo " 第 $ROUND 轮  |  $(date '+%Y-%m-%d %H:%M:%S %Z')"
+    echo " 已用: ${ELAPSED}s  |  剩余: ~${REMAINING}s"
     echo "========================================"
 
     ROUND_RESULTS=""
@@ -209,16 +209,16 @@ while true; do
         # Check remaining time before each token
         NOW=$(date +%s)
         if [ $((NOW - START_TIME)) -ge "$MAX_DURATION_SEC" ]; then
-            echo "Time limit reached mid-round. Breaking."
+            echo "已达时间上限，中途结束本轮。"
             break
         fi
 
-        echo "[$((i+1))/${#TOKENS[@]}] Testing $token_preview ..."
+        echo "[$((i+1))/${#TOKENS[@]}] 正在测试 $token_preview ..."
 
         if result=$(bash "$SCRIPT_DIR/keepalive.sh" "$token" "$BASE_URL" "$MODEL" 2>&1); then
             echo "$result"
-            echo "  ✓ $token_preview is active"
-            ROUND_RESULTS+="  ✓ $token_preview is active"$'\n'
+            echo "  ✓ $token_preview 正常"
+            ROUND_RESULTS+="  ✓ $token_preview 正常"$'\n'
             ROUND_SUCCESS=$((ROUND_SUCCESS + 1))
 
             # First healthy answer: stop hammering and keep the account warm at
@@ -227,13 +227,13 @@ while true; do
             if [ "$SLOWDOWN_ACTIVE" = false ] && [ "$SLOW_INTERVAL_SEC" -gt 0 ]; then
                 SLOWDOWN_ACTIVE=true
                 SLEEP_BETWEEN_ROUNDS="$SLOW_INTERVAL_SEC"
-                echo "  >>> First healthy answer - slowing down to a ${SLOW_INTERVAL_MIN}min keepalive pace"
-                ROUND_RESULTS+="  >>> First healthy answer: switched to the ${SLOW_INTERVAL_MIN}min keepalive pace"$'\n'
+                echo "  >>> 首次收到正常回复 - 降速到 ${SLOW_INTERVAL_MIN} 分钟保活节奏"
+                ROUND_RESULTS+="  >>> 首次收到正常回复: 已切换到 ${SLOW_INTERVAL_MIN} 分钟保活节奏"$'\n'
             fi
         else
             echo "$result"
-            echo "  ✗ $token_preview failed"
-            ROUND_RESULTS+="  ✗ $token_preview failed"$'\n'
+            echo "  ✗ $token_preview 失败"
+            ROUND_RESULTS+="  ✗ $token_preview 失败"$'\n'
             ROUND_FAIL=$((ROUND_FAIL + 1))
         fi
 
@@ -246,25 +246,25 @@ while true; do
                 WAIT_SEC=$(( SLEEP_BETWEEN_TOKENS + (RANDOM % 21) - 10 ))
                 [ "$WAIT_SEC" -lt 10 ] && WAIT_SEC=10
             fi
-            echo "  Waiting ${WAIT_SEC}s ..."
+            echo "  等待 ${WAIT_SEC}s ..."
             sleep "$WAIT_SEC"
         fi
     done
 
     # Accumulate round results
-    ALL_RESULTS+="--- Round $ROUND ($(date '+%Y-%m-%d %H:%M')) ---"$'\n'
+    ALL_RESULTS+="--- 第 $ROUND 轮 ($(date '+%Y-%m-%d %H:%M')) ---"$'\n'
     ALL_RESULTS+="$ROUND_RESULTS"$'\n'
-    ALL_RESULTS+="Round $ROUND summary: $ROUND_SUCCESS success, $ROUND_FAIL failed"$'\n'$'\n'
+    ALL_RESULTS+="第 $ROUND 轮汇总: 成功 $ROUND_SUCCESS，失败 $ROUND_FAIL"$'\n'$'\n'
 
     echo ""
-    echo "--- Round $ROUND summary: $ROUND_SUCCESS success, $ROUND_FAIL failed ---"
+    echo "--- 第 $ROUND 轮汇总: 成功 $ROUND_SUCCESS，失败 $ROUND_FAIL ---"
 
     ROUND=$((ROUND + 1))
 
     # If --once mode, exit after the first round
     if [ "$ONCE" = true ]; then
         echo ""
-        echo "=== --once mode: single round complete. Exiting. ==="
+        echo "=== --once 模式: 单轮已完成，退出 ==="
         break
     fi
 
@@ -276,8 +276,8 @@ while true; do
     if [ "$REMAINING" -le "$((SLEEP_BETWEEN_ROUNDS + 120))" ] && [ "$HAS_SENT_REPORT" = false ]; then
         HAS_SENT_REPORT=true
         echo ""
-        echo "=== Sending final report ==="
-        send_email "Anyrouter Keepalive Report ($(date '+%Y-%m-%d'))" "$ALL_RESULTS" || true
+        echo "=== 发送最终报告 ==="
+        send_email "Anyrouter 保活报告 ($(date '+%Y-%m-%d'))" "$ALL_RESULTS" || true
         echo ""
 
         # Do one more round if time allows, but signal it's the last
@@ -292,26 +292,26 @@ while true; do
     REMAINING=$((MAX_DURATION_SEC - ELAPSED))
 
     if [ "$REMAINING" -gt "$SLEEP_BETWEEN_ROUNDS" ]; then
-        echo "Sleeping ${SLEEP_BETWEEN_ROUNDS}s until round $ROUND ..."
+        echo "休眠 ${SLEEP_BETWEEN_ROUNDS}s，等待第 $ROUND 轮 ..."
         sleep "$SLEEP_BETWEEN_ROUNDS"
     elif [ "$REMAINING" -gt 60 ]; then
-        echo "Sleeping ${REMAINING}s (remaining time) ..."
+        echo "休眠 ${REMAINING}s（剩余时间）..."
         sleep "$REMAINING"
     else
-        echo "Time limit reached."
+        echo "已达到时间上限。"
     fi
 done
 
 # Final summary
 echo ""
 echo "========================================"
-echo " All rounds complete."
+echo " 全部轮次完成。"
 echo "$ALL_RESULTS"
 echo "========================================"
 
 # Send one final report if we never sent one (e.g. very short run)
 if [ "$HAS_SENT_REPORT" = false ]; then
-    send_email "Anyrouter Keepalive Report ($(date '+%Y-%m-%d'))" "$ALL_RESULTS" || true
+    send_email "Anyrouter 保活报告 ($(date '+%Y-%m-%d'))" "$ALL_RESULTS" || true
 fi
 
-echo "Done."
+echo "完成。"

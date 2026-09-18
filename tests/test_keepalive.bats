@@ -27,7 +27,7 @@ teardown() {
 @test "keepalive.sh fails without token" {
     run bash scripts/keepalive.sh
     [ "$status" -eq 1 ]
-    [[ "$output" == *"Usage"* ]]
+    [[ "$output" == *"用法"* ]]
 }
 
 @test "keepalive.sh creates and cleans up settings.json" {
@@ -49,14 +49,14 @@ teardown() {
     unset ANYROUTER_TOKENS
     run bash scripts/run-all.sh
     [ "$status" -eq 1 ]
-    [[ "$output" == *"No tokens"* ]]
+    [[ "$output" == *"没有找到 token"* ]]
 }
 
 @test "run-all.sh parses single token from env" {
     export ANYROUTER_TOKENS="sk-ant-testAAA"
     run timeout 5 bash scripts/run-all.sh 2>&1 || true
     [ "$status" -eq 124 ] || true  # 124 = timeout, which is expected
-    [[ "$output" == *"Loaded 1 token(s)"* ]]
+    [[ "$output" == *"已加载 1 个 token"* ]]
 }
 
 @test "run-all.sh parses multiple tokens from env" {
@@ -64,7 +64,7 @@ teardown() {
 sk-ant-testBBB
 sk-ant-testCCC"
     run timeout 5 bash scripts/run-all.sh 2>&1 || true
-    [[ "$output" == *"Loaded 3 token(s)"* ]]
+    [[ "$output" == *"已加载 3 个 token"* ]]
 }
 
 @test "prompts.txt has no empty lines used as prompts" {
@@ -95,8 +95,8 @@ MOCK
 
     run bash scripts/keepalive.sh "$TEST_TOKEN" "https://relay.example.com"
     [ "$status" -eq 0 ]
-    [[ "$output" == *"Model: gpt-6-astra"* ]]
-    [[ "$output" == *"Protocol: responses"* ]]
+    [[ "$output" == *"模型: gpt-6-astra"* ]]
+    [[ "$output" == *"协议: responses"* ]]
     [[ "$output" == *"SUCCESS"* ]]
 }
 
@@ -110,7 +110,7 @@ MOCK
 
     run bash scripts/keepalive.sh "$TEST_TOKEN" "https://relay.example.com" "gpt-6-astra"
     [ "$status" -eq 0 ]
-    [[ "$output" == *"Protocol: responses"* ]]
+    [[ "$output" == *"协议: responses"* ]]
     [[ "$output" == *"SUCCESS"* ]]
     grep -q '/v1/responses' "$TEST_DIR/curl_args.txt"
     grep -q '"input"' "$TEST_DIR/curl_args.txt"
@@ -138,7 +138,7 @@ MOCK
 
     run env PROTOCOL=openai bash scripts/keepalive.sh "$TEST_TOKEN" "https://relay.example.com/v1" "claude-opus-4-8[1m]"
     [ "$status" -eq 0 ]
-    [[ "$output" == *"Protocol: openai"* ]]
+    [[ "$output" == *"协议: openai"* ]]
 }
 
 @test "keepalive.sh fails when the OpenAI response has no content" {
@@ -151,13 +151,13 @@ MOCK
     run bash scripts/keepalive.sh "$TEST_TOKEN" "https://relay.example.com" "gpt-6-astra"
     [ "$status" -eq 1 ]
     [[ "$output" == *"FAILED"* ]]
-    [[ "$output" == *"relay error: invalid model"* ]]
+    [[ "$output" == *"中转站报错: invalid model"* ]]
 }
 
 @test "keepalive.sh rejects an unknown PROTOCOL value" {
     run env PROTOCOL=bogus bash scripts/keepalive.sh "$TEST_TOKEN" "https://anyrouter.top"
     [ "$status" -eq 1 ]
-    [[ "$output" == *"unknown PROTOCOL"* ]]
+    [[ "$output" == *"未知的 PROTOCOL"* ]]
 }
 
 @test "keepalive.sh surfaces the relay error for an unsupported model" {
@@ -169,7 +169,7 @@ MOCK
 
     run bash scripts/keepalive.sh "$TEST_TOKEN" "https://anyrouter.top/v1" "gpt-6-astra"
     [ "$status" -eq 1 ]
-    [[ "$output" == *"relay error"* ]]
+    [[ "$output" == *"中转站报错"* ]]
     [[ "$output" == *"gpt-6-astra"* ]]
 }
 
@@ -196,7 +196,7 @@ MOCK
 
     run bash scripts/keepalive.sh "$TEST_TOKEN" "https://relay.example.com" "gpt-6-astra"
     [ "$status" -eq 0 ]
-    [[ "$output" == *"Prompt pool: "*"scripts/prompts.txt"* ]]
+    [[ "$output" == *"提示词池: "*"scripts/prompts.txt"* ]]
 
     local sent
     sent=$(grep -o '"input":"[^"]*"' "$TEST_DIR/curl_args.txt" | head -1 | sed -e 's/^"input":"//' -e 's/"$//')
@@ -232,7 +232,7 @@ MOCK
     cd "$TEST_DIR"
     run env PROMPTS_FILE=scripts/prompts-engineering.txt bash "$repo_root/scripts/keepalive.sh" "$TEST_TOKEN" "https://relay.example.com" "gpt-6-astra"
     [ "$status" -eq 0 ]
-    [[ "$output" == *"Prompt pool: $repo_root/scripts/prompts-engineering.txt"* ]]
+    [[ "$output" == *"提示词池: $repo_root/scripts/prompts-engineering.txt"* ]]
 }
 
 @test "run-all.sh uses a fixed REQUEST_INTERVAL_SEC between requests" {
@@ -246,9 +246,9 @@ MOCK
 sk-testBBB"
     run timeout 30 env REQUEST_INTERVAL_SEC=1 bash scripts/run-all.sh --once
     [ "$status" -eq 0 ]
-    [[ "$output" == *"Request interval: 1s"* ]]
-    [[ "$output" == *"Waiting 1s ..."* ]]
-    [[ "$output" == *"Round 1 summary: 2 success, 0 failed"* ]]
+    [[ "$output" == *"请求间隔: 1s"* ]]
+    [[ "$output" == *"等待 1s ..."* ]]
+    [[ "$output" == *"第 1 轮汇总: 成功 2，失败 0"* ]]
 }
 
 @test "run-all.sh treats a blank or space-only interval as not set" {
@@ -262,15 +262,15 @@ MOCK
 sk-testBBB"
     run env REQUEST_INTERVAL_SEC=" " bash scripts/run-all.sh --once
     [ "$status" -eq 0 ]
-    [[ "$output" != *"Request interval:"* ]]
-    [[ "$output" == *"Round 1 summary: 2 success, 0 failed"* ]]
+    [[ "$output" != *"请求间隔:"* ]]
+    [[ "$output" == *"第 1 轮汇总: 成功 2，失败 0"* ]]
 }
 
 @test "run-all.sh rejects a non-numeric REQUEST_INTERVAL_SEC" {
     export ANYROUTER_TOKENS="sk-testAAA"
     run env REQUEST_INTERVAL_SEC=abc bash scripts/run-all.sh --once
     [ "$status" -eq 1 ]
-    [[ "$output" == *"must be a whole number of seconds"* ]]
+    [[ "$output" == *"必须是整数秒"* ]]
 }
 
 @test "monitor-recovery.sh uses a fixed REQUEST_INTERVAL_SEC" {
@@ -284,14 +284,14 @@ MOCK
 sk-testBBB"
     run timeout 60 env REQUEST_INTERVAL_SEC=1 MAX_DURATION_SEC=30 bash scripts/monitor-recovery.sh
     [ "$status" -eq 0 ]
-    [[ "$output" == *"Request interval: 1s"* ]]
-    [[ "$output" == *"Waiting 1s ..."* ]]
+    [[ "$output" == *"请求间隔: 1s"* ]]
+    [[ "$output" == *"等待 1s ..."* ]]
 }
 
 @test "keepalive.sh fails fast when the codex CLI is missing" {
     run env PATH="$TEST_DIR/mock_bin:/usr/bin:/bin" PROTOCOL=codex bash scripts/keepalive.sh "$TEST_TOKEN" "https://relay.example.com" "gpt-6-astra"
     [ "$status" -eq 1 ]
-    [[ "$output" == *"codex CLI not found"* ]]
+    [[ "$output" == *"未找到 codex CLI"* ]]
     [[ "$output" == *"install-cli.sh codex"* ]]
 }
 
@@ -315,8 +315,8 @@ MOCK
 
     run env PROTOCOL=codex bash scripts/keepalive.sh "$TEST_TOKEN" "https://anyrouter.top/v1" "gpt-6-astra"
     [ "$status" -eq 0 ]
-    [[ "$output" == *"Protocol: codex"* ]]
-    [[ "$output" == *"Codex last message"* ]]
+    [[ "$output" == *"协议: codex"* ]]
+    [[ "$output" == *"Codex 最终回复"* ]]
     [[ "$output" == *"SUCCESS"* ]]
 
     grep -q '^exec$' "$TEST_DIR/codex_args.txt"
@@ -333,13 +333,13 @@ MOCK
 @test "install-cli.sh skips an already installed CLI" {
     run bash scripts/install-cli.sh claude
     [ "$status" -eq 0 ]
-    [[ "$output" == *"claude CLI already installed"* ]]
+    [[ "$output" == *"claude CLI 已安装"* ]]
 }
 
 @test "install-cli.sh rejects an unknown target" {
     run bash scripts/install-cli.sh bogus
     [ "$status" -eq 1 ]
-    [[ "$output" == *"Usage: "*"claude|codex"* ]]
+    [[ "$output" == *"用法: "*"claude|codex"* ]]
 }
 
 @test "keepalive.sh reports the codex CLI error message on failure" {
@@ -353,7 +353,7 @@ MOCK
 
     run env PROTOCOL=codex bash scripts/keepalive.sh "$TEST_TOKEN" "https://anyrouter.top" "gpt-6-astra"
     [ "$status" -eq 1 ]
-    [[ "$output" == *"FAILED (Codex CLI error: We're currently experiencing high demand"* ]]
+    [[ "$output" == *"FAILED (Codex CLI 报错: We're currently experiencing high demand"* ]]
 }
 
 @test "keepalive.sh reports the claude CLI error message on failure" {
@@ -366,7 +366,7 @@ MOCK
 
     run bash scripts/keepalive.sh "$TEST_TOKEN" "https://anyrouter.top" "claude-opus-4-8[1m]"
     [ "$status" -eq 1 ]
-    [[ "$output" == *"FAILED (Claude error: 当前模型 claude-opus-4-8[1m] 负载已经达到上限"* ]]
+    [[ "$output" == *"FAILED (Claude 报错: 当前模型 claude-opus-4-8[1m] 负载已经达到上限"* ]]
 }
 
 @test "run-all.sh slows down to the keepalive pace after the first healthy answer" {
@@ -379,9 +379,9 @@ MOCK
     export ANYROUTER_TOKENS="sk-testAAA
 sk-testBBB"
     run timeout 25 env REQUEST_INTERVAL_SEC=1 SLOW_INTERVAL_MIN=1 bash scripts/run-all.sh
-    [[ "$output" == *"Slow-down after first success: 1min keepalive pace"* ]]
-    [[ "$output" == *">>> First healthy answer - slowing down to a 1min keepalive pace"* ]]
-    [[ "$output" == *"Sleeping 60s until round 2"* ]]
+    [[ "$output" == *"首次成功后降速: 1 分钟保活节奏"* ]]
+    [[ "$output" == *">>> 首次收到正常回复 - 降速到 1 分钟保活节奏"* ]]
+    [[ "$output" == *"休眠 60s，等待第 2 轮"* ]]
 }
 
 @test "run-all.sh records the slow-down in the report body" {
@@ -395,8 +395,8 @@ MOCK
 sk-testBBB"
     run env REQUEST_INTERVAL_SEC=1 SLOW_INTERVAL_MIN=1 MAX_DURATION_SEC=3 bash scripts/run-all.sh
     [ "$status" -eq 0 ]
-    [[ "$output" == *">>> First healthy answer: switched to the 1min keepalive pace"* ]]
-    [[ "$output" == *"Round 1 summary: 2 success, 0 failed"* ]]
+    [[ "$output" == *">>> 首次收到正常回复: 已切换到 1 分钟保活节奏"* ]]
+    [[ "$output" == *"第 1 轮汇总: 成功 2，失败 0"* ]]
 }
 
 @test "run-all.sh keeps the fast pace when the slow-down is disabled" {
@@ -409,16 +409,16 @@ MOCK
     export ANYROUTER_TOKENS="sk-testAAA
 sk-testBBB"
     run timeout 25 env REQUEST_INTERVAL_SEC=1 SLOW_INTERVAL_MIN=0 bash scripts/run-all.sh
-    [[ "$output" == *"Slow-down after first success: disabled"* ]]
-    [[ "$output" != *"slowing down to a"* ]]
-    [[ "$output" == *"Sleeping 1s until round 2"* ]]
+    [[ "$output" == *"首次成功后降速: 已禁用"* ]]
+    [[ "$output" != *"降速到"* ]]
+    [[ "$output" == *"休眠 1s，等待第 2 轮"* ]]
 }
 
 @test "run-all.sh rejects a non-numeric SLOW_INTERVAL_MIN" {
     export ANYROUTER_TOKENS="sk-testAAA"
     run env REQUEST_INTERVAL_SEC=1 SLOW_INTERVAL_MIN=soon bash scripts/run-all.sh --once
     [ "$status" -eq 1 ]
-    [[ "$output" == *"SLOW_INTERVAL_MIN must be a whole number of minutes"* ]]
+    [[ "$output" == *"SLOW_INTERVAL_MIN 必须是整数分钟"* ]]
 }
 
 @test "run-all.sh can print the raw SMTP conversation when SMTP_DEBUG=true" {
@@ -435,6 +435,6 @@ MOCK
 
     export ANYROUTER_TOKENS="sk-testAAA"
     run env QQ_EMAIL="someone@qq.com" QQ_SMTP_AUTH_CODE="fakecode" SMTP_DEBUG=true bash scripts/run-all.sh --once
-    [[ "$output" == *"SMTP_DEBUG: printing the raw SMTP conversation"* ]]
-    [[ "$output" == *"Email FAILED (curl exit: 55)"* ]]
+    [[ "$output" == *"SMTP_DEBUG: 打印原始 SMTP 会话"* ]]
+    [[ "$output" == *"邮件发送 FAILED (curl 退出码: 55)"* ]]
 }

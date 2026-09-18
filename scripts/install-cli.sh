@@ -9,7 +9,7 @@
 # call this from a workflow step or locally before a run.
 set -euo pipefail
 
-TARGET="${1:?Usage: $0 claude|codex}"
+TARGET="${1:?用法: $0 claude|codex}"
 
 # GitHub Actions picks up PATH additions from later steps via $GITHUB_PATH
 add_to_path() {
@@ -21,31 +21,31 @@ add_to_path() {
 case "$TARGET" in
     claude)
         if command -v claude >/dev/null 2>&1; then
-            echo "claude CLI already installed: $(claude --version 2>/dev/null || echo 'version unknown')"
+            echo "claude CLI 已安装: $(claude --version 2>/dev/null || echo '版本未知')"
             exit 0
         fi
-        echo "Installing Claude Code CLI ..."
+        echo "正在安装 Claude Code CLI ..."
         curl -fsSL https://claude.ai/install.sh | bash
         add_to_path "$HOME/.local/bin"
         export PATH="$HOME/.local/bin:$PATH"
         ;;
     codex)
         if command -v codex >/dev/null 2>&1; then
-            echo "codex CLI already installed: $(codex --version 2>/dev/null || echo 'version unknown')"
+            echo "codex CLI 已安装: $(codex --version 2>/dev/null || echo '版本未知')"
             exit 0
         fi
         if ! command -v npm >/dev/null 2>&1; then
-            echo "ERROR: npm is required to install the Codex CLI" >&2
+            echo "ERROR: 安装 Codex CLI 需要 npm" >&2
             exit 1
         fi
-        echo "Installing Codex CLI ..."
+        echo "正在安装 Codex CLI ..."
         if ! npm install -g @openai/codex; then
-            echo "npm install failed, retrying with sudo ..." >&2
+            echo "npm install 失败，改用 sudo 重试 ..." >&2
             sudo npm install -g @openai/codex
         fi
         ;;
     *)
-        echo "Usage: $0 claude|codex" >&2
+        echo "用法: $0 claude|codex" >&2
         exit 1
         ;;
 esac
@@ -53,16 +53,16 @@ esac
 case "$TARGET" in
     claude)
         if command -v claude >/dev/null 2>&1; then
-            echo "claude: $(claude --version 2>/dev/null || echo 'installed')"
+            echo "claude: $(claude --version 2>/dev/null || echo '已安装')"
         else
-            echo "claude installed, but not on PATH yet - add \$HOME/.local/bin"
+            echo "claude 已安装，但还不在 PATH 中 - 请把 \$HOME/.local/bin 加入 PATH"
         fi
         ;;
     codex)
         if command -v codex >/dev/null 2>&1; then
-            echo "codex: $(codex --version 2>/dev/null || echo 'installed')"
+            echo "codex: $(codex --version 2>/dev/null || echo '已安装')"
         else
-            echo "codex installed, but not on PATH yet"
+            echo "codex 已安装，但还不在 PATH 中"
         fi
         ;;
 esac

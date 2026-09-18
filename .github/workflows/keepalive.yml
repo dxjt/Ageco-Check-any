@@ -9,40 +9,40 @@ on:
   workflow_dispatch:
     inputs:
       base_url:
-        description: 'API Base URL'
+        description: '接口地址（API Base URL）'
         required: false
         default: 'https://anyrouter.top'
       model:
-        description: 'Model id (claude-* -> Anthropic, others -> OpenAI Responses)'
+        description: '模型 ID（claude-* 走 Anthropic 协议，其他走 OpenAI Responses）'
         required: false
         default: 'gpt-6-astra'
       protocol:
-        description: 'Protocol: auto | anthropic | responses | openai | codex'
+        description: '协议: auto | anthropic | responses | openai | codex'
         required: false
         default: 'auto'
 
       interval:
-        description: 'Seconds between two requests, e.g. 30 (blank = built-in pacing: 30s between tokens, 50min/30min between rounds)'
+        description: '两次请求间隔秒数，例如 30（留空 = 内置节奏: token 之间 30s，轮与轮之间 50min/30min）'
         required: false
         default: ''
 
       install_cli:
-        description: 'Install CLIs before running: auto (only what the protocol needs) | yes (Claude + Codex) | no (skip)'
+        description: '运行前安装 CLI: auto（只装协议需要的）| yes（Claude + Codex 都装）| no（跳过）'
         required: false
         default: 'auto'
 
       slow_interval_min:
-        description: 'After the first healthy answer, keep alive every N minutes (only applies when interval is set; 0 = stay fast)'
+        description: '首次正常回复后每 N 分钟保活一次（仅在设置了 interval 时生效；0 = 不降速）'
         required: false
         default: '30'
 
       smtp_debug:
-        description: 'Print the raw SMTP conversation when sending the report email (true/false)'
+        description: '发报告邮件时打印原始 SMTP 会话（true/false）'
         required: false
         default: 'false'
 
       smtp_url:
-        description: 'SMTP endpoint for the report email (blank = smtps://smtp.qq.com:465 then smtp://smtp.qq.com:587)'
+        description: '报告邮件的 SMTP 地址（留空 = 先试 smtps://smtp.qq.com:465，再试 smtp://smtp.qq.com:587）'
         required: false
         default: ''
 
@@ -56,24 +56,24 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 360  # 6h max, our script self-terminates at ~5h58m
     steps:
-      - name: Checkout repository
+      - name: 检出仓库
         uses: actions/checkout@v4
 
-      - name: Install Claude Code CLI
+      - name: 安装 Claude Code CLI
         if: ${{ (github.event.inputs.install_cli || 'auto') != 'no' && ((github.event.inputs.install_cli || 'auto') == 'yes' || (github.event.inputs.protocol || 'auto') == 'anthropic' || ((github.event.inputs.protocol || 'auto') == 'auto' && startsWith(github.event.inputs.model || 'gpt-6-astra', 'claude'))) }}
         run: bash scripts/install-cli.sh claude
 
-      - name: Install Codex CLI
+      - name: 安装 Codex CLI
         if: ${{ (github.event.inputs.install_cli || 'auto') != 'no' && ((github.event.inputs.install_cli || 'auto') == 'yes' || (github.event.inputs.protocol || 'auto') == 'codex') }}
         run: bash scripts/install-cli.sh codex
 
-      - name: Show available CLIs
+      - name: 查看已安装的 CLI
         if: ${{ (github.event.inputs.install_cli || 'auto') != 'no' }}
         run: |
-          command -v claude >/dev/null 2>&1 && claude --version || echo "claude CLI: not installed"
-          command -v codex >/dev/null 2>&1 && codex --version || echo "codex CLI: not installed"
+          command -v claude >/dev/null 2>&1 && claude --version || echo "claude CLI: 未安装"
+          command -v codex >/dev/null 2>&1 && codex --version || echo "codex CLI: 未安装"
 
-      - name: Run keepalive for all tokens
+      - name: 对所有 token 执行保活测活
         env:
           ANYROUTER_TOKENS: ${{ secrets.ANYROUTER_TOKENS }}
           BASE_URL: ${{ github.event.inputs.base_url || 'https://anyrouter.top' }}

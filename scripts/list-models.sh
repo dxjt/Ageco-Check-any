@@ -6,7 +6,7 @@
 # e.g. {"error":"当前 API 不支持所选模型 gpt-6-astra","type":"error"}
 set -euo pipefail
 
-TOKEN="${1:?Usage: $0 <token> [base_url]}"
+TOKEN="${1:?用法: $0 <token> [base_url]}"
 BASE_URL="${2:-https://anyrouter.top}"
 
 BASE="${BASE_URL%/}"
@@ -21,7 +21,7 @@ echo "GET $URL"
 BODY=$(curl -sS --max-time 30 -H "Authorization: Bearer $TOKEN" "$URL" || true)
 
 if [ -z "$BODY" ]; then
-    echo "FAILED (empty response - network blocked or wrong host?)" >&2
+    echo "FAILED (响应为空 - 网络不通或主机地址不对？)" >&2
     exit 1
 fi
 
@@ -40,6 +40,6 @@ if [ -n "$IDS" ]; then
     exit 0
 fi
 
-echo "FAILED (no model list in the response). Raw body follows:" >&2
+echo "FAILED (响应里没有模型列表)。原始响应如下:" >&2
 printf '%s\n' "$BODY" >&2
 exit 1
