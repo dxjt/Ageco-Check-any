@@ -109,6 +109,18 @@ extract_chat_content() {
     return 0
 }
 
+# Extract the error text from an OpenAI-style error payload (best effort)
+extract_error_message() {
+    local body="$1"
+    if command -v jq >/dev/null 2>&1; then
+        printf '%s' "$body" | jq -r 'if (.error | type) == "string" then .error else (.error.message // empty) end' 2>/dev/null || true
+    else
+        printf '%s' "$body" | tr ',' '\n' \
+            | sed -n -e 's/.*"message":"\([^"]*\)".*/\1/p' -e 's/.*"error":"\([^"]*\)".*/\1/p'
+    fi
+    return 0
+}
+
 PROMPT=$(pick_prompt)
 
 # --- Run health check ---
@@ -181,7 +193,12 @@ fi
 # 3. OpenAI path: the body must carry assistant content
 if [ "$PROTOCOL" = "openai" ]; then
     if [ -z "$(extract_chat_content "$OUTPUT_CONTENT")" ]; then
-        echo "  FAILED (no assistant content in OpenAI response)"
+        RELAY_ERROR=$(extract_error_message "$OUTPUT_CONTENT")
+        if [ -n "$RELAY_ERROR" ]; then
+            echo "  FAILED (relay error: $RELAY_ERROR)"
+        else
+            echo "  FAILED (no assistant content in OpenAI response)"
+        fi
         exit 1
     fi
 fi

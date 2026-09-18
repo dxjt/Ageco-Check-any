@@ -79,7 +79,8 @@ sk-ant-xxx333
 - `gpt-6-astra` 这类 OpenAI 格式的 id 自动走 OpenAI 协议：`Authorization: Bearer <token>`，请求体为 `{"model", "messages", "max_tokens", "stream": false}`。
 - OpenAI 通道用 `curl` 直连，不需要安装 Claude Code CLI；`MAX_TOKENS` 覆盖默认的 128，设为 `none` 则不发送该字段（适配只接受 `max_completion_tokens` 的模型）。
 - `BASE_URL` 可写成 `https://relay.example.com`、`https://relay.example.com/v1` 或完整端点，脚本都会补全成 `/v1/chat/completions`，不会重复拼接。
-- 只要响应里没有 assistant 内容（例如返回 `{"error": ...}`），该 token 即判定为不可用。
+- 只要响应里没有 assistant 内容（例如返回 `{"error": ...}`），该 token 即判定为不可用；失败行的 `relay error:` 会带上中转站返回的原始错误。
+- 中转站返回 `{"error":"当前 API 不支持所选模型 xxx"}` 说明该站点没有这个模型：先用 `bash scripts/list-models.sh <token> [base_url]` 查出它实际接受的 id，或把 `BASE_URL` 换成真正提供该模型的站点。
 
 
 ## 本地运行
@@ -136,6 +137,9 @@ MAX_DURATION_SEC=60 bash scripts/run-all.sh
 ```bash
 # 模型 id 不是 claude-*，自动切到 OpenAI 协议（/v1/chat/completions）
 export ANYROUTER_TOKENS="sk-your-relay-key"
+
+# 先查该站点支持哪些模型 id（任何 OpenAI 兼容站点都适用）
+bash scripts/list-models.sh "$ANYROUTER_TOKENS"
 MODEL="gpt-6-astra" bash scripts/keepalive.sh "$ANYROUTER_TOKENS"
 
 # 或显式指定协议
@@ -181,6 +185,7 @@ bats tests/
 │   └── monitor-recovery.yml       # 恢复监控工作流（手动）
 ├── scripts/
 │   ├── keepalive.sh               # 核心脚本：单 token 测活（Anthropic / OpenAI 双协议）
+│   ├── list-models.sh             # 查看中转站实际支持的模型 id
 │   ├── run-all.sh                 # 批量运行器：50 分钟轮询
 │   ├── monitor-recovery.sh        # 恢复监控：30 分钟轮询 + 早期退出
 │   └── prompts.txt                # prompt 池（30 条工程 + 30 条轻量）

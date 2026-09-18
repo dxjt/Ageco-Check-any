@@ -121,10 +121,37 @@ MOCK
     run bash scripts/keepalive.sh "$TEST_TOKEN" "https://relay.example.com" "gpt-6-astra"
     [ "$status" -eq 1 ]
     [[ "$output" == *"FAILED"* ]]
+    [[ "$output" == *"relay error: invalid model"* ]]
 }
 
 @test "keepalive.sh rejects an unknown PROTOCOL value" {
     run env PROTOCOL=bogus bash scripts/keepalive.sh "$TEST_TOKEN" "https://anyrouter.top"
     [ "$status" -eq 1 ]
     [[ "$output" == *"unknown PROTOCOL"* ]]
+}
+
+@test "keepalive.sh surfaces the relay error for an unsupported model" {
+    cat > "$TEST_DIR/mock_bin/curl" << 'MOCK'
+#!/usr/bin/env bash
+echo '{"error":"当前 API 不支持所选模型 gpt-6-astra","type":"error"}'
+MOCK
+    chmod +x "$TEST_DIR/mock_bin/curl"
+
+    run bash scripts/keepalive.sh "$TEST_TOKEN" "https://anyrouter.top/v1" "gpt-6-astra"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"relay error"* ]]
+    [[ "$output" == *"gpt-6-astra"* ]]
+}
+
+@test "list-models.sh prints the model ids returned by the relay" {
+    cat > "$TEST_DIR/mock_bin/curl" << 'MOCK'
+#!/usr/bin/env bash
+echo '{"data":[{"id":"claude-opus-4-8[1m]"},{"id":"gpt-6-astra"}]}'
+MOCK
+    chmod +x "$TEST_DIR/mock_bin/curl"
+
+    run bash scripts/list-models.sh "$TEST_TOKEN" "https://anyrouter.top"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"claude-opus-4-8[1m]"* ]]
+    [[ "$output" == *"gpt-6-astra"* ]]
 }
