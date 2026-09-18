@@ -41,6 +41,11 @@ on:
         required: false
         default: 'false'
 
+      smtp_url:
+        description: 'SMTP endpoint for the report email (blank = smtps://smtp.qq.com:465 then smtp://smtp.qq.com:587)'
+        required: false
+        default: ''
+
 # Prevent concurrent runs stacking up
 concurrency:
   group: keepalive
@@ -77,6 +82,7 @@ jobs:
           REQUEST_INTERVAL_SEC: ${{ github.event.inputs.interval || '' }}
           SLOW_INTERVAL_MIN: ${{ github.event.inputs.slow_interval_min || '30' }}
           SMTP_DEBUG: ${{ github.event.inputs.smtp_debug || 'false' }}
+          SMTP_URL: ${{ github.event.inputs.smtp_url || '' }}
           QQ_EMAIL: ${{ secrets.QQ_EMAIL }}
           QQ_SMTP_AUTH_CODE: ${{ secrets.QQ_SMTP_AUTH_CODE }}
           CI: "true"

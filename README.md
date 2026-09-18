@@ -302,5 +302,12 @@ bats tests/
 - **频率控制**：默认 token 之间间隔 30 秒（带随机抖动）；可用 `REQUEST_INTERVAL_SEC`（Actions 的 `interval`）改成固定间隔，间隔越短越容易被限流
 - **成本**：每次测活只发一条随机短 prompt，单次成本极低；模型由 `MODEL` 决定，OpenAI 协议默认 `max_tokens=128`（可用 `MAX_TOKENS=none` 关闭）
 - **邮箱配置**：QQ 邮箱的 SMTP 授权码请在 QQ 邮箱 → 设置 → 账号 → POP3/IMAP/SMTP 服务 中生成
+- **邮件发不出去（QQ 回 `502 Invalid input from <IP>`）**：认证其实是成功的，被拒的是 `MAIL FROM` —— QQ 不信任 GitHub Actions 的机房 IP。实测 465/587 两个端口、带不带 `SIZE` 参数都一样，换端口没用。此时把 `SMTP_URL` 换成别的邮箱服务（`smtps://smtp.example.com:465`），或改用自建 runner（家宽/公司出口 IP）。排查用 `smtp_debug=true`（Actions 输入）打印完整 SMTP 会话：
+  ```
+  > AUTH LOGIN
+  < 235 Authentication successful
+  > MAIL FROM:<you@qq.com>
+  < 502 Invalid input from 20.118.213.20 to newxmesmtplogicsvrsza73-0.qq.com.
+  ```
 - **Prompt 池**：默认 20 条轻量探针（`scripts/prompts.txt`），每次随机选一条；工程提问池在 `scripts/prompts-engineering.txt`，用 `PROMPTS_FILE` 切换
 - **CLI 协议**：`anthropic` 走 Claude Code CLI、`codex` 走 Codex CLI；不确定装没装就先跑 `bash scripts/install-cli.sh codex`（已装会跳过）

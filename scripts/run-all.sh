@@ -118,9 +118,14 @@ EOF
     fi
 
     local curl_exit=0 url
-    # Try the implicit-TLS port first, then the STARTTLS port: some networks (and
-    # some QQ front-ends) reject one but accept the other.
-    for url in "smtps://smtp.qq.com:465" "smtp://smtp.qq.com:587"; do
+    # QQ defaults: implicit TLS first, then the STARTTLS port. SMTP_URL replaces
+    # them entirely (QQ Mail refuses to send from cloud/datacenter IPs such as
+    # GitHub runners, so another provider is often the only way out).
+    local smtp_urls=("smtps://smtp.qq.com:465" "smtp://smtp.qq.com:587")
+    if [ -n "${SMTP_URL:-}" ]; then
+        smtp_urls=("$SMTP_URL")
+    fi
+    for url in "${smtp_urls[@]}"; do
         curl_exit=0
         curl -sS --ssl-reqd --fail-with-body ${curl_opts[@]+"${curl_opts[@]}"} \
             --url "$url" \
@@ -147,6 +152,7 @@ EOF
         echo "    - QQ_SMTP_AUTH_CODE is wrong (it is NOT your QQ password)"
         echo "    - Generate it at: QQ Mail -> Settings -> Account -> POP3/IMAP/SMTP"
         echo "    - Network/firewall blocking smtps://smtp.qq.com:465"
+        echo "    - QQ refuses to send from cloud IPs (GitHub runners): set SMTP_URL to another provider"
         echo "    - Run again with SMTP_DEBUG=true (Actions input: smtp_debug) to see QQ's raw reply"
         return 1
     fi

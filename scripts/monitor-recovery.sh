@@ -112,6 +112,8 @@ EOF
         echo "  Common causes:"
         echo "    - QQ_SMTP_AUTH_CODE is wrong (it is NOT your QQ password)"
         echo "    - Generate it at: QQ Mail -> Settings -> Account -> POP3/IMAP/SMTP"
+        echo "    - Network/firewall blocking smtps://smtp.qq.com:465"
+        echo "    - QQ refuses to send from cloud IPs (GitHub runners): set SMTP_URL to another provider"
         echo "    - Run again with SMTP_DEBUG=true (Actions input: smtp_debug) to see QQ's raw reply"
         return 1
     fi
