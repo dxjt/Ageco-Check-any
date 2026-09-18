@@ -198,10 +198,18 @@ MOCK
     [ "$status" -eq 0 ]
     [[ "$output" == *"提示词池: "*"scripts/prompts.txt"* ]]
 
+    # Compare the prompt echoed in the log against the pool: a pool line may
+    # itself contain quotes (只输出 JSON：{"status":"ok"}), so pulling it out of
+    # the JSON body is unreliable.
     local sent
-    sent=$(grep -o '"input":"[^"]*"' "$TEST_DIR/curl_args.txt" | head -1 | sed -e 's/^"input":"//' -e 's/"$//')
+    sent=$(printf '%s\n' "$output" | sed -n 's/^  提示词: //p' | head -1)
     [ -n "$sent" ]
+    case "$sent" in
+        *...) sent="${sent%...}" ;;   # the log truncates long prompts to 60 chars
+    esac
     grep -Fq "$sent" scripts/prompts.txt
+    ! grep -q '"input":""' "$TEST_DIR/curl_args.txt"
+    grep -q '"input":"' "$TEST_DIR/curl_args.txt"
 }
 
 @test "keepalive.sh honours PROMPTS_FILE" {
@@ -367,6 +375,40 @@ MOCK
     run bash scripts/keepalive.sh "$TEST_TOKEN" "https://anyrouter.top" "claude-opus-4-8[1m]"
     [ "$status" -eq 1 ]
     [[ "$output" == *"FAILED (Claude 报错: 当前模型 claude-opus-4-8[1m] 负载已经达到上限"* ]]
+}
+
+@test "keepalive.sh aborts a CLI request on the first Reconnecting retry" {
+    cat > "$TEST_DIR/mock_bin/codex" << 'MOCK'
+#!/usr/bin/env bash
+echo "ERROR: Reconnecting... 1/5"
+sleep 20
+echo "ERROR: Reconnecting... 5/5"
+exit 1
+MOCK
+    chmod +x "$TEST_DIR/mock_bin/codex"
+
+    SECONDS=0
+    run env PROTOCOL=codex TIMEOUT_SEC=15 bash scripts/keepalive.sh "$TEST_TOKEN" "https://anyrouter.top" "gpt-6-astra"
+    local elapsed=$SECONDS
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"检测到重试，已提前中止本次请求"* ]]
+    [[ "$output" == *"Reconnecting... 1/5"* ]]
+    [[ "$output" != *"Reconnecting... 5/5"* ]]
+    [ "$elapsed" -lt 10 ]
+}
+
+@test "keepalive.sh can turn the retry abort off with an empty CLI_RETRY_ABORT_PATTERN" {
+    cat > "$TEST_DIR/mock_bin/codex" << 'MOCK'
+#!/usr/bin/env bash
+echo "ERROR: Reconnecting... 1/5"
+exit 1
+MOCK
+    chmod +x "$TEST_DIR/mock_bin/codex"
+
+    run env PROTOCOL=codex CLI_RETRY_ABORT_PATTERN= bash scripts/keepalive.sh "$TEST_TOKEN" "https://anyrouter.top" "gpt-6-astra"
+    [ "$status" -eq 1 ]
+    [[ "$output" != *"已提前中止"* ]]
+    [[ "$output" == *"FAILED (Codex CLI 报错: Reconnecting... 1/5"* ]]
 }
 
 @test "run-all.sh slows down to the keepalive pace after the first healthy answer" {

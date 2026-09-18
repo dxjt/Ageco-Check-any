@@ -14,6 +14,11 @@
 #
 # Other env vars: MAX_TOKENS (default 128, "none" to omit the field),
 #                 TIMEOUT_SEC (default 120),
+#                 CLI_RETRY_ABORT_PATTERN (grep -E pattern; a CLI request is cut
+#                               short as soon as its output matches, default
+#                               "Reconnecting" - codex backs off between its 5
+#                               attempts and waiting them out just burns the
+#                               round; empty string = wait for the CLI to end),
 #                 PROMPTS_FILE (default scripts/prompts.txt; each request picks a
 #                               random line from it. A relative path is resolved
 #                               against the repo root, then the cwd)
@@ -27,6 +32,7 @@ MODEL="${3:-gpt-6-astra}"
 PROTOCOL="${PROTOCOL:-auto}"
 MAX_TOKENS="${MAX_TOKENS:-128}"
 TIMEOUT_SEC="${TIMEOUT_SEC:-120}"
+CLI_RETRY_ABORT_PATTERN="${CLI_RETRY_ABORT_PATTERN:-Reconnecting}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROMPTS_FILE="${PROMPTS_FILE:-$SCRIPT_DIR/prompts.txt}"
@@ -212,6 +218,39 @@ extract_cli_error() {
     return 0
 }
 
+# --- CLI runner with early retry abort ---
+# Run a CLI health check in the background and stop it as soon as its output
+# shows a retry (codex prints "ERROR: Reconnecting... 1/5" and then waits
+# between attempts). One retry already means the channel is unusable right now,
+# so waiting out the remaining attempts only burns the round. The SIGTERM goes
+# to "timeout", which forwards it to the CLI it manages.
+# Sets CLI_EXIT_CODE; when aborted, also CLI_ABORT_LINE.
+CLI_EXIT_CODE=0
+CLI_ABORT_LINE=""
+run_cli_until_retry() {
+    local output="$1"; shift
+    CLI_EXIT_CODE=0
+    CLI_ABORT_LINE=""
+    : > "$output"
+    "$@" > "$output" 2>&1 < /dev/null &
+    local pid=$!
+    while kill -0 "$pid" 2>/dev/null; do
+        if [ -n "$CLI_RETRY_ABORT_PATTERN" ] \
+            && grep -aqE "$CLI_RETRY_ABORT_PATTERN" "$output" 2>/dev/null; then
+            CLI_ABORT_LINE=$(grep -aE "$CLI_RETRY_ABORT_PATTERN" "$output" 2>/dev/null | head -n 1 | tr -d '\r')
+            CLI_ABORT_LINE="${CLI_ABORT_LINE:0:160}"
+            kill "$pid" 2>/dev/null || true
+            break
+        fi
+        sleep 0.2 2>/dev/null || sleep 1
+    done
+    wait "$pid" 2>/dev/null || CLI_EXIT_CODE=$?
+    if [ -n "$CLI_ABORT_LINE" ]; then
+        CLI_EXIT_CODE=1
+    fi
+    return 0
+}
+
 PROMPT=$(pick_prompt)
 
 # --- Run health check ---
@@ -244,9 +283,11 @@ env_key = "ANYROUTER_API_KEY"
 wire_api = "responses"
 EOF
     export ANYROUTER_API_KEY="$TOKEN"
-    timeout "$TIMEOUT_SEC" env CODEX_HOME="$CODEX_HOME_DIR" \
+    run_cli_until_retry "$OUTPUT_FILE" \
+        timeout "$TIMEOUT_SEC" env CODEX_HOME="$CODEX_HOME_DIR" \
         codex exec --model "$MODEL" --skip-git-repo-check --ephemeral \
-        -C "$CODEX_WORK_DIR" -o "$LAST_MSG_FILE" "$PROMPT" < /dev/null > "$OUTPUT_FILE" 2>&1 || EXIT_CODE=$?
+        -C "$CODEX_WORK_DIR" -o "$LAST_MSG_FILE" "$PROMPT"
+    EXIT_CODE="$CLI_EXIT_CODE"
 elif [ "$PROTOCOL" != "anthropic" ]; then
     # OpenAI-compatible path: direct HTTP call to /v1/responses or /v1/chat/completions
     if [ "$PROTOCOL" = "responses" ]; then
@@ -285,8 +326,11 @@ EOF
         EXTRA_FLAGS+=(--dangerously-skip-permissions)
     fi
 
-    # Run claude with timeout to prevent infinite retry hangs.
-    timeout "$TIMEOUT_SEC" claude -p "$PROMPT" --print --model "$MODEL" --bare "${EXTRA_FLAGS[@]}" > "$OUTPUT_FILE" 2>&1 || EXIT_CODE=$?
+    # Run claude with timeout to prevent infinite retry hangs; the watcher also
+    # cuts the request short on the first retry line.
+    run_cli_until_retry "$OUTPUT_FILE" \
+        timeout "$TIMEOUT_SEC" claude -p "$PROMPT" --print --model "$MODEL" --bare "${EXTRA_FLAGS[@]}"
+    EXIT_CODE="$CLI_EXIT_CODE"
 fi
 
 # --- Print ALL output for diagnostics ---
@@ -332,7 +376,9 @@ fi
 
 # 1. Non-zero exit code is a clear failure (includes timeout exit 124)
 if [ "$EXIT_CODE" -ne 0 ]; then
-    if [ -n "$CLI_ERROR" ]; then
+    if [ -n "$CLI_ABORT_LINE" ]; then
+        echo "  FAILED (${API_LABEL} 检测到重试，已提前中止本次请求: ${CLI_ABORT_LINE})"
+    elif [ -n "$CLI_ERROR" ]; then
         echo "  FAILED (${API_LABEL} 报错: ${CLI_ERROR})"
     elif [ "$EXIT_CODE" -eq 124 ]; then
         echo "  FAILED (超时 ${TIMEOUT_SEC}s)"
