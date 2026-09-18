@@ -206,7 +206,8 @@ if [ "$PROTOCOL" = "codex" ]; then
     # Codex CLI path: a throwaway CODEX_HOME carries the relay endpoint, so the
     # caller's own ~/.codex/config.toml is never touched.
     API_LABEL="Codex CLI"
-    CODEX_HOME_DIR=$(mktemp -d)
+    # Keep CODEX_HOME out of /tmp: codex refuses to create its PATH aliases there
+    CODEX_HOME_DIR=$(mktemp -d "$HOME/.codex-keepalive.XXXXXX")
     CODEX_WORK_DIR=$(mktemp -d)
     LAST_MSG_FILE="$CODEX_WORK_DIR/last_message.txt"
     cat > "$CODEX_HOME_DIR/config.toml" << EOF
