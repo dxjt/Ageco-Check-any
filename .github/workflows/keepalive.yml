@@ -17,7 +17,7 @@ on:
         required: false
         default: 'gpt-6-astra'
       protocol:
-        description: 'Protocol: auto | anthropic | responses | openai'
+        description: 'Protocol: auto | anthropic | responses | openai | codex'
         required: false
         default: 'auto'
 
