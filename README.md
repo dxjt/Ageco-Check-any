@@ -113,7 +113,7 @@ PROMPTS_FILE=scripts/prompts-engineering.txt bash scripts/run-all.sh --once
 
 `REQUEST_INTERVAL_SEC`（Actions 里叫 `interval`）控制两次请求之间隔多少秒：
 
-- **留空（默认）**：token 之间 30 秒 ± 10 秒随机抖动，轮与轮之间 50 分钟（Keepalive）/ 30 分钟（Recovery Monitor），与旧版本一致
+- **留空（默认，只输入空格也算留空）**：token 之间 30 秒 ± 10 秒随机抖动，轮与轮之间 50 分钟（Keepalive）/ 30 分钟（Recovery Monitor），与旧版本一致
 - **设为 N**：两次请求严格间隔 N 秒、不加抖动；同一轮内 token 之间如此，轮与轮之间也如此。所以只有一个 token 时，就是「每 N 秒发一次请求」
 
 ```bash

@@ -251,6 +251,21 @@ sk-testBBB"
     [[ "$output" == *"Round 1 summary: 2 success, 0 failed"* ]]
 }
 
+@test "run-all.sh treats a blank or space-only interval as not set" {
+    cat > "$TEST_DIR/mock_bin/curl" << 'MOCK'
+#!/usr/bin/env bash
+echo '{"id":"resp_blank","object":"response","status":"completed","output_text":"ok"}'
+MOCK
+    chmod +x "$TEST_DIR/mock_bin/curl"
+
+    export ANYROUTER_TOKENS="sk-testAAA
+sk-testBBB"
+    run env REQUEST_INTERVAL_SEC=" " bash scripts/run-all.sh --once
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"Request interval:"* ]]
+    [[ "$output" == *"Round 1 summary: 2 success, 0 failed"* ]]
+}
+
 @test "run-all.sh rejects a non-numeric REQUEST_INTERVAL_SEC" {
     export ANYROUTER_TOKENS="sk-testAAA"
     run env REQUEST_INTERVAL_SEC=abc bash scripts/run-all.sh --once

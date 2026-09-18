@@ -28,6 +28,9 @@ SLEEP_BETWEEN_ROUNDS="${SLEEP_BETWEEN_ROUNDS:-3000}"       # ~50 minutes between
 # Fixed seconds between two consecutive requests. When set it wins over both
 # defaults above, so "one request every N seconds" also holds between rounds.
 REQUEST_INTERVAL_SEC="${REQUEST_INTERVAL_SEC:-}"
+# Blank or whitespace-only (e.g. someone typed a space in the Actions box) means
+# "not set": fall back to the built-in pacing below.
+REQUEST_INTERVAL_SEC="$(printf '%s' "$REQUEST_INTERVAL_SEC" | tr -d '[:space:]')"
 if [ -n "$REQUEST_INTERVAL_SEC" ]; then
     case "$REQUEST_INTERVAL_SEC" in
         *[!0-9]*)
