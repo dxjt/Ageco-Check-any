@@ -13,9 +13,13 @@ on:
         required: false
         default: 'https://anyrouter.top'
       model:
-        description: 'Claude model for health checks'
+        description: 'Model id (claude-* -> Anthropic, others -> OpenAI-compatible)'
         required: false
         default: 'claude-fable-5-1[1m]'
+      protocol:
+        description: 'Protocol: auto | anthropic | openai'
+        required: false
+        default: 'auto'
 
 # Prevent concurrent runs stacking up
 concurrency:
@@ -31,11 +35,13 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install Claude Code CLI
+        if: ${{ (github.event.inputs.protocol || 'auto') != 'openai' }}
         run: |
           curl -fsSL https://claude.ai/install.sh | bash
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
       - name: Verify Claude CLI
+        if: ${{ (github.event.inputs.protocol || 'auto') != 'openai' }}
         run: claude --version
 
       - name: Run keepalive for all tokens
@@ -43,6 +49,7 @@ jobs:
           ANYROUTER_TOKENS: ${{ secrets.ANYROUTER_TOKENS }}
           BASE_URL: ${{ github.event.inputs.base_url || 'https://anyrouter.top' }}
           MODEL: ${{ github.event.inputs.model || 'claude-fable-5-1[1m]' }}
+          PROTOCOL: ${{ github.event.inputs.protocol || 'auto' }}
           QQ_EMAIL: ${{ secrets.QQ_EMAIL }}
           QQ_SMTP_AUTH_CODE: ${{ secrets.QQ_SMTP_AUTH_CODE }}
           CI: "true"

@@ -1,6 +1,6 @@
 # Anyrouter Keepalive
 
-对 Anyrouter Claude API 中转站的多账号执行健康检查（保活）与恢复监控，通过 GitHub Actions 运行，让账号在调度队列中保持活跃状态，在使用时获得更高优先级。
+对 Anyrouter Claude API 中转站的多账号执行健康检查（保活）与恢复监控，通过 GitHub Actions 运行，让账号在调度队列中保持活跃状态，在使用时获得更高优先级。除 Claude 以外，也支持任意 OpenAI 格式的模型 id（例如 `gpt-6-astra`），详见「模型与协议」。
 
 ## 工作流一览
 
@@ -45,7 +45,7 @@ Fork 本仓库到你的 GitHub 账号下。
 | `QQ_EMAIL` | QQ 邮箱地址，用于接收报告 | ❌ 可选 |
 | `QQ_SMTP_AUTH_CODE` | QQ 邮箱 SMTP 授权码 | ❌ 可选 |
 
-**ANYROUTER_TOKENS 格式：**
+**ANYROUTER_TOKENS 格式：**（每行一个 token；Anyrouter 用 `sk-ant-...`，换用其他中转站时填该站的 key）
 ```
 sk-ant-xxx111
 sk-ant-xxx222
@@ -62,7 +62,25 @@ sk-ant-xxx333
 | 保活（单次） | Actions → Anyrouter Keepalive (Once) → Run workflow |
 | 恢复监控 | Actions → Anyrouter Recovery Monitor → Run workflow |
 
-**恢复监控**在手动触发时可自定义 `base_url` 和 `model`，默认使用 `opus[1m]` + FC 端点。
+**恢复监控**在手动触发时可自定义 `base_url`、`model` 和 `protocol`，默认使用 `opus[1m]` + FC 端点。
+
+## 模型与协议
+
+测活请求支持两种协议，由 `PROTOCOL` 环境变量控制，默认 `auto`（按模型 id 自动判断）：
+
+| PROTOCOL | 模型 id | 走的通道 |
+|---|---|---|
+| `auto`（默认） | 以 `claude` 开头 | Anthropic Messages API（Claude Code CLI + `~/.claude/settings.json`） |
+| `auto`（默认） | 其他任意 id | OpenAI 兼容协议 `POST {BASE_URL}/v1/chat/completions` |
+| `anthropic` | 强制 | Anthropic Messages API |
+| `openai` | 强制 | OpenAI 兼容协议（curl 直连，不依赖 Claude CLI） |
+
+- `claude-opus-4-8[1m]`、`claude-fable-5-1[1m]` 这类 id 走 Anthropic 协议。
+- `gpt-6-astra` 这类 OpenAI 格式的 id 自动走 OpenAI 协议：`Authorization: Bearer <token>`，请求体为 `{"model", "messages", "max_tokens", "stream": false}`。
+- OpenAI 通道用 `curl` 直连，不需要安装 Claude Code CLI；`MAX_TOKENS` 覆盖默认的 128，设为 `none` 则不发送该字段（适配只接受 `max_completion_tokens` 的模型）。
+- `BASE_URL` 可写成 `https://relay.example.com`、`https://relay.example.com/v1` 或完整端点，脚本都会补全成 `/v1/chat/completions`，不会重复拼接。
+- 只要响应里没有 assistant 内容（例如返回 `{"error": ...}`），该 token 即判定为不可用。
+
 
 ## 本地运行
 
@@ -113,6 +131,22 @@ export ANYROUTER_TOKENS="sk-ant-test"
 MAX_DURATION_SEC=60 bash scripts/run-all.sh
 ```
 
+### 用 OpenAI 格式的模型测活（如 gpt-6-astra）
+
+```bash
+# 模型 id 不是 claude-*，自动切到 OpenAI 协议（/v1/chat/completions）
+export ANYROUTER_TOKENS="sk-your-relay-key"
+MODEL="gpt-6-astra" bash scripts/keepalive.sh "$ANYROUTER_TOKENS"
+
+# 或显式指定协议
+PROTOCOL=openai MODEL="gpt-6-astra" bash scripts/keepalive.sh "$ANYROUTER_TOKENS"
+PROTOCOL=anthropic MODEL="claude-opus-4-8[1m]" bash scripts/keepalive.sh "$ANYROUTER_TOKENS"
+
+# 批量 / 恢复监控同样生效（MODEL、PROTOCOL 走环境变量）
+MODEL="gpt-6-astra" bash scripts/run-all.sh --once
+MODEL="gpt-6-astra" bash scripts/monitor-recovery.sh
+```
+
 ## 运行测试
 
 ```bash
@@ -146,7 +180,7 @@ bats tests/
 │   ├── keepalive-once.yml         # 单次测活工作流（手动）
 │   └── monitor-recovery.yml       # 恢复监控工作流（手动）
 ├── scripts/
-│   ├── keepalive.sh               # 核心脚本：单 token 测活
+│   ├── keepalive.sh               # 核心脚本：单 token 测活（Anthropic / OpenAI 双协议）
 │   ├── run-all.sh                 # 批量运行器：50 分钟轮询
 │   ├── monitor-recovery.sh        # 恢复监控：30 分钟轮询 + 早期退出
 │   └── prompts.txt                # prompt 池（30 条工程 + 30 条轻量）
@@ -161,6 +195,6 @@ bats tests/
 - **不要滥用**：保活仅凌晨低峰期运行，恢复监控按需手动触发，频率合理不会对 Anyrouter 造成压力
 - **遵守条款**：请遵守 Anyrouter 的使用条款和服务协议
 - **频率控制**：token 之间间隔 30 秒（带随机抖动），避免触发限流
-- **成本**：每次测活使用 `opus[1m]` 模型，通过 FC 端点直连，单次成本极低
+- **成本**：每次测活只发一条随机短 prompt，单次成本极低；模型由 `MODEL` 决定，OpenAI 协议默认 `max_tokens=128`（可用 `MAX_TOKENS=none` 关闭）
 - **邮箱配置**：QQ 邮箱的 SMTP 授权码请在 QQ 邮箱 → 设置 → 账号 → POP3/IMAP/SMTP 服务 中生成
 - **Prompt 池**：共 60 条 prompt（30 条工程提问 + 30 条轻量级快速问答），每次随机选取一条发送

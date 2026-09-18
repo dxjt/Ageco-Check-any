@@ -83,3 +83,48 @@ sk-ant-testCCC"
     grep -q "ANTHROPIC_AUTH_TOKEN" "$file"
     rm -f "$file"
 }
+
+@test "keepalive.sh routes non-claude model ids to the OpenAI protocol" {
+    cat > "$TEST_DIR/mock_bin/curl" << 'MOCK'
+#!/usr/bin/env bash
+cat <<'JSON'
+{"id":"chatcmpl-test","object":"chat.completion","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}
+JSON
+MOCK
+    chmod +x "$TEST_DIR/mock_bin/curl"
+
+    run bash scripts/keepalive.sh "$TEST_TOKEN" "https://relay.example.com" "gpt-6-astra"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"Protocol: openai"* ]]
+    [[ "$output" == *"SUCCESS"* ]]
+}
+
+@test "keepalive.sh forces the OpenAI path when PROTOCOL=openai" {
+    cat > "$TEST_DIR/mock_bin/curl" << 'MOCK'
+#!/usr/bin/env bash
+echo '{"choices":[{"index":0,"message":{"role":"assistant","content":"ok"}}]}'
+MOCK
+    chmod +x "$TEST_DIR/mock_bin/curl"
+
+    run env PROTOCOL=openai bash scripts/keepalive.sh "$TEST_TOKEN" "https://relay.example.com/v1" "claude-opus-4-8[1m]"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"Protocol: openai"* ]]
+}
+
+@test "keepalive.sh fails when the OpenAI response has no content" {
+    cat > "$TEST_DIR/mock_bin/curl" << 'MOCK'
+#!/usr/bin/env bash
+echo '{"error":{"message":"invalid model","type":"invalid_request_error"}}'
+MOCK
+    chmod +x "$TEST_DIR/mock_bin/curl"
+
+    run bash scripts/keepalive.sh "$TEST_TOKEN" "https://relay.example.com" "gpt-6-astra"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"FAILED"* ]]
+}
+
+@test "keepalive.sh rejects an unknown PROTOCOL value" {
+    run env PROTOCOL=bogus bash scripts/keepalive.sh "$TEST_TOKEN" "https://anyrouter.top"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"unknown PROTOCOL"* ]]
+}
