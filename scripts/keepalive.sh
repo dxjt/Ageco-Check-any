@@ -331,6 +331,15 @@ EOF
         EXTRA_FLAGS+=(--dangerously-skip-permissions)
     fi
 
+    # A relay that only serves the 1m variant answers the plain id with a 400 and
+    # the CLI then keeps retrying in the background, so treat that answer as an
+    # abort condition too: it lets us switch to the "[1m]" model within seconds
+    # instead of burning the whole TIMEOUT_SEC.
+    case "$MODEL" in
+        *'[1m]') ;;
+        *) CLI_RETRY_ABORT_PATTERN="${CLI_RETRY_ABORT_PATTERN}|1m 上下文|1m context" ;;
+    esac
+
     # Run claude with timeout to prevent infinite retry hangs; the watcher also
     # cuts the request short on the first retry line.
     run_cli_until_retry "$OUTPUT_FILE" \
@@ -400,7 +409,7 @@ fi
 # 1. Non-zero exit code is a clear failure (includes timeout exit 124)
 if [ "$EXIT_CODE" -ne 0 ]; then
     if [ -n "$CLI_ABORT_LINE" ]; then
-        echo "  FAILED (${API_LABEL} 检测到重试，已提前中止本次请求: ${CLI_ABORT_LINE})"
+        echo "  FAILED (${API_LABEL} 检测到重试/错误，已提前结束本次请求: ${CLI_ABORT_LINE})"
     elif [ -n "$CLI_ERROR" ]; then
         echo "  FAILED (${API_LABEL} 报错: ${CLI_ERROR})"
     elif [ "$EXIT_CODE" -eq 124 ]; then

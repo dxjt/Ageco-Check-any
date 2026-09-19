@@ -391,7 +391,7 @@ MOCK
     run env PROTOCOL=codex TIMEOUT_SEC=15 bash scripts/keepalive.sh "$TEST_TOKEN" "https://anyrouter.top" "gpt-6-astra"
     local elapsed=$SECONDS
     [ "$status" -eq 1 ]
-    [[ "$output" == *"检测到重试，已提前中止本次请求"* ]]
+    [[ "$output" == *"检测到重试/错误，已提前结束本次请求"* ]]
     [[ "$output" == *"Reconnecting... 1/5"* ]]
     [[ "$output" != *"Reconnecting... 5/5"* ]]
     [ "$elapsed" -lt 10 ]
@@ -490,11 +490,15 @@ case "$model" in
     *'[1m]') echo "Mock claude: healthy"; exit 0 ;;
 esac
 echo 'API Error: 400 {"error":"1m 上下文已经全量可用，请启用 1m 上下文后重试","type":"error"}'
+sleep 30
 exit 1
 MOCK
     chmod +x "$TEST_DIR/mock_bin/claude"
 
+    SECONDS=0
     run bash scripts/keepalive.sh "$TEST_TOKEN" "https://anyrouter.top" "claude-fable-5-1"
+    local elapsed=$SECONDS
+    [ "$elapsed" -lt 10 ]
     [ "$status" -eq 0 ]
     [[ "$output" == *"自动改用 claude-fable-5-1[1m] 重试"* ]]
     [[ "$output" == *"协议: anthropic | 模型: claude-fable-5-1[1m]"* ]]
