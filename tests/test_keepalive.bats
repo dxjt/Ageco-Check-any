@@ -477,6 +477,46 @@ MOCK
     [[ "$output" == *"已触发下一段运行"* ]]
 }
 
+@test "keepalive.sh retries with the [1m] model when the relay asks for 1m context" {
+    cat > "$TEST_DIR/mock_bin/claude" << 'MOCK'
+#!/usr/bin/env bash
+model=""
+while [ $# -gt 0 ]; do
+    if [ "$1" = "--model" ]; then model="$2"; fi
+    shift
+done
+printf 'model=%s\n' "$model" >> "$TEST_DIR/claude_models.txt"
+case "$model" in
+    *'[1m]') echo "Mock claude: healthy"; exit 0 ;;
+esac
+echo 'API Error: 400 {"error":"1m 上下文已经全量可用，请启用 1m 上下文后重试","type":"error"}'
+exit 1
+MOCK
+    chmod +x "$TEST_DIR/mock_bin/claude"
+
+    run bash scripts/keepalive.sh "$TEST_TOKEN" "https://anyrouter.top" "claude-fable-5-1"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"自动改用 claude-fable-5-1[1m] 重试"* ]]
+    [[ "$output" == *"协议: anthropic | 模型: claude-fable-5-1[1m]"* ]]
+    [[ "$output" == *"SUCCESS"* ]]
+    grep -q '^model=claude-fable-5-1$' "$TEST_DIR/claude_models.txt"
+    grep -q '^model=claude-fable-5-1\[1m\]$' "$TEST_DIR/claude_models.txt"
+}
+
+@test "keepalive.sh surfaces the 1m-context error when the model already has the [1m] suffix" {
+    cat > "$TEST_DIR/mock_bin/claude" << 'MOCK'
+#!/usr/bin/env bash
+echo 'API Error: 400 {"error":"1m 上下文已经全量可用，请启用 1m 上下文后重试","type":"error"}'
+exit 1
+MOCK
+    chmod +x "$TEST_DIR/mock_bin/claude"
+
+    run bash scripts/keepalive.sh "$TEST_TOKEN" "https://anyrouter.top" "claude-fable-5-1[1m]"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"FAILED (Claude 报错: 1m 上下文已经全量可用，请启用 1m 上下文后重试)"* ]]
+    [[ "$output" != *"自动改用"* ]]
+}
+
 @test "run-all.sh slows down to the keepalive pace after the first healthy answer" {
     cat > "$TEST_DIR/mock_bin/curl" << 'MOCK'
 #!/usr/bin/env bash

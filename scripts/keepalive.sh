@@ -198,11 +198,12 @@ extract_error_message() {
 }
 
 # Pull the relay/provider message out of a CLI log: codex prints "ERROR: ..."
-# lines, claude prints "Error: ..." or a {"error": ...} blob.
+# lines, claude prints "Error: ...", "API Error: 400 {...}" or a {"error": ...}
+# blob.
 extract_cli_error() {
     local log="$1" line
     [ -f "$log" ] || return 0
-    line=$(grep -aE '^[[:space:]]*(ERROR|Error)' "$log" 2>/dev/null | tail -1 || true)
+    line=$(grep -aE '^[[:space:]]*(ERROR|Error|API Error)' "$log" 2>/dev/null | tail -1 || true)
     case "$line" in
         *'"message":"'*)
             line=$(printf '%s' "$line" | sed -e 's/.*"message":"\([^"]*\)".*/\1/')
@@ -211,7 +212,11 @@ extract_cli_error() {
             line=$(printf '%s' "$line" | sed -e 's/.*"error":"\([^"]*\)".*/\1/')
             ;;
         *)
-            line=$(printf '%s' "$line" | sed -e 's/^[[:space:]]*//' -e 's/^ERROR:[[:space:]]*//' -e 's/^Error:[[:space:]]*//')
+            line=$(printf '%s' "$line" | sed \
+                -e 's/^[[:space:]]*//' \
+                -e 's/^ERROR:[[:space:]]*//' \
+                -e 's/^Error:[[:space:]]*//' \
+                -e 's/^API Error:[[:space:]]*[0-9]*[[:space:]]*//')
             ;;
     esac
     printf '%s' "$line"
@@ -331,6 +336,24 @@ EOF
     run_cli_until_retry "$OUTPUT_FILE" \
         timeout "$TIMEOUT_SEC" claude -p "$PROMPT" --print --model "$MODEL" --bare "${EXTRA_FLAGS[@]}"
     EXIT_CODE="$CLI_EXIT_CODE"
+
+    # Some relays only serve the 1m-context variant of a Claude model and answer
+    # "1m 上下文已经全量可用，请启用 1m 上下文后重试" for the plain id. Claude Code
+    # switches 1m context on through the "[1m]" model suffix, so retry once with
+    # it instead of failing the whole round.
+    case "$MODEL" in
+        *'[1m]') ;;   # already asking for 1m context
+        *)
+            if [ "$EXIT_CODE" -ne 0 ] \
+                && grep -aqE '1m 上下文|1m context|context-1m' "$OUTPUT_FILE" 2>/dev/null; then
+                MODEL="${MODEL}[1m]"
+                echo "  >>> 中转站要求 1m 上下文，自动改用 ${MODEL} 重试"
+                run_cli_until_retry "$OUTPUT_FILE" \
+                    timeout "$TIMEOUT_SEC" claude -p "$PROMPT" --print --model "$MODEL" --bare "${EXTRA_FLAGS[@]}"
+                EXIT_CODE="$CLI_EXIT_CODE"
+            fi
+            ;;
+    esac
 fi
 
 # --- Print ALL output for diagnostics ---

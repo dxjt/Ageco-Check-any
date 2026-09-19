@@ -106,6 +106,7 @@ Actions 里用 `install_cli` 输入决定跑之前装不装：
 - Codex CLI 走的是流式请求（`stream: true`），中转站必须支持 SSE 流式返回；只支持整包返回的站点会报 `stream disconnected before completion`，那种情况用 `PROTOCOL=responses` 的 curl 直连即可。
 - Codex CLI 会把请求发到 `{BASE_URL}/v1/responses`（`wire_api = "responses"`），并带上一堆工具定义，报文比 curl 探针大得多；只想测「账号是否活着」建议还是用默认的 `responses`。
 - **重试即中止**：CLI 输出里一旦出现重试行（codex 会打印 `ERROR: Reconnecting... 1/5` 然后退避重试），脚本在**第一次重试就掐掉这次请求**并判定该 token 失败——不再等 5 次重试跑完，本轮只花几秒就进入下一次对话。判定条件用 `CLI_RETRY_ABORT_PATTERN`（`grep -E` 模式，默认 `Reconnecting`；设为空字符串则恢复成「等 CLI 自己结束」），日志会打印 `FAILED (Codex CLI 检测到重试，已提前中止本次请求: ERROR: Reconnecting... 1/5)`
+- **1m 上下文自动重试**：有些中转站只提供 Claude 模型的 1m 变体，用普通 id 会回 `1m 上下文已经全量可用，请启用 1m 上下文后重试`。Claude Code 里「启用 1m」就是模型 id 加 `[1m]` 后缀，所以脚本会自动改成 `模型[1m]` 再试一次（日志：`>>> 中转站要求 1m 上下文，自动改用 claude-fable-5-1[1m] 重试`）；id 已经带 `[1m]` 时不会重复重试，直接把这个错误原样显示在 `FAILED (Claude 报错: ...)` 里
 
 > Codex CLI 从 npm 安装（`npm install -g @openai/codex`），Claude Code CLI 从 `https://claude.ai/install.sh` 安装。GitHub 的 runner 是一次性的，所以 `auto`/`yes` 每次运行都会装一遍；这也是为什么默认走 curl 的 `responses` 最省时间。
 
