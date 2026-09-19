@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # run-all.sh - Batch health-check runner with internal 50-minute loop
-# Designed for a single GitHub Actions container: runs rounds until ~5h58m time limit.
+# Loops forever unless MAX_DURATION_SEC is set (GitHub Actions still caps a job
+# at 6h; the workflow chains the next run instead of stopping for good).
 # Supports local usage via .env file or ANYROUTER_TOKENS env var.
 # Usage: run-all.sh [--once]
 #
@@ -12,6 +13,8 @@
 #                          keepalive pace in minutes (default 30, 0 = stay fast)
 #   SLEEP_BETWEEN_TOKENS - default 30s (+/- 10s jitter) between tokens
 #   SLEEP_BETWEEN_ROUNDS - default 3000s between rounds
+#   MAX_DURATION_SEC     - seconds to run before exiting; default 0 = never stop
+#                          on its own (0/none/unlimited all mean "no limit")
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -57,9 +60,21 @@ if [ -z "$REQUEST_INTERVAL_SEC" ]; then
     SLOW_INTERVAL_SEC=0
 fi
 SLOWDOWN_ACTIVE=false
-MAX_DURATION_SEC="${MAX_DURATION_SEC:-21500}"               # ~5h58m (just under 6h limit)
+MAX_DURATION_SEC="${MAX_DURATION_SEC:-0}"                  # 0/none/unlimited = 不自动停止
+case "$MAX_DURATION_SEC" in
+    0|none|None|unlimited|inf|infinite) MAX_DURATION_SEC="" ;;
+esac
 QQ_EMAIL="${QQ_EMAIL:-}"
 QQ_SMTP_AUTH_CODE="${QQ_SMTP_AUTH_CODE:-}"
+
+# Remaining seconds until the time limit, or "inf" when there is no limit at all
+remaining_sec() {
+    if [ -z "$MAX_DURATION_SEC" ]; then
+        echo "inf"
+    else
+        echo $(( MAX_DURATION_SEC - ($(date +%s) - START_TIME) ))
+    fi
+}
 
 # --- Load tokens ---
 load_tokens() {
@@ -186,16 +201,20 @@ HAS_SENT_REPORT=false
 while true; do
     NOW=$(date +%s)
     ELAPSED=$((NOW - START_TIME))
-    REMAINING=$((MAX_DURATION_SEC - ELAPSED))
+    REMAINING=$(remaining_sec)
 
-    if [ "$REMAINING" -le 0 ]; then
+    if [ "$REMAINING" != "inf" ] && [ "$REMAINING" -le 0 ]; then
         echo "=== 达到时间上限，退出 ==="
         break
     fi
 
     echo "========================================"
     echo " 第 $ROUND 轮  |  $(date '+%Y-%m-%d %H:%M:%S %Z')"
-    echo " 已用: ${ELAPSED}s  |  剩余: ~${REMAINING}s"
+    if [ "$REMAINING" = "inf" ]; then
+        echo " 已用: ${ELAPSED}s  |  剩余: 无限"
+    else
+        echo " 已用: ${ELAPSED}s  |  剩余: ~${REMAINING}s"
+    fi
     echo "========================================"
 
     ROUND_RESULTS=""
@@ -208,7 +227,7 @@ while true; do
 
         # Check remaining time before each token
         NOW=$(date +%s)
-        if [ $((NOW - START_TIME)) -ge "$MAX_DURATION_SEC" ]; then
+        if [ -n "$MAX_DURATION_SEC" ] && [ $((NOW - START_TIME)) -ge "$MAX_DURATION_SEC" ]; then
             echo "已达时间上限，中途结束本轮。"
             break
         fi
@@ -271,9 +290,10 @@ while true; do
     # Check if we should send final report (last round before time limit)
     NOW=$(date +%s)
     ELAPSED=$((NOW - START_TIME))
-    REMAINING=$((MAX_DURATION_SEC - ELAPSED))
+    REMAINING=$(remaining_sec)
 
-    if [ "$REMAINING" -le "$((SLEEP_BETWEEN_ROUNDS + 120))" ] && [ "$HAS_SENT_REPORT" = false ]; then
+    if [ "$REMAINING" != "inf" ] && [ "$REMAINING" -le "$((SLEEP_BETWEEN_ROUNDS + 120))" ] \
+        && [ "$HAS_SENT_REPORT" = false ]; then
         HAS_SENT_REPORT=true
         echo ""
         echo "=== 发送最终报告 ==="
@@ -289,9 +309,9 @@ while true; do
     # Sleep until next round (if we have time)
     NOW=$(date +%s)
     ELAPSED=$((NOW - START_TIME))
-    REMAINING=$((MAX_DURATION_SEC - ELAPSED))
+    REMAINING=$(remaining_sec)
 
-    if [ "$REMAINING" -gt "$SLEEP_BETWEEN_ROUNDS" ]; then
+    if [ "$REMAINING" = "inf" ] || [ "$REMAINING" -gt "$SLEEP_BETWEEN_ROUNDS" ]; then
         echo "休眠 ${SLEEP_BETWEEN_ROUNDS}s，等待第 $ROUND 轮 ..."
         sleep "$SLEEP_BETWEEN_ROUNDS"
     elif [ "$REMAINING" -gt 60 ]; then

@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # monitor-recovery.sh - Poll all tokens every 30min, send round summary, early-exit when fast
-# Designed for manual-trigger GitHub Actions workflow (6h container).
+# Runs until MAX_DURATION_SEC (default 0 = never stop) or until all tokens are
+# healthy and fast (early exit).
+# Designed for manual-trigger GitHub Actions workflow (6h container; the workflow
+# can chain the next run with scripts/continue-workflow.sh).
 # Reuses keepalive.sh for health checks.
 # Usage: monitor-recovery.sh
 set -euo pipefail
@@ -26,13 +29,25 @@ if [ -n "$REQUEST_INTERVAL_SEC" ]; then
     esac
     POLL_INTERVAL="$REQUEST_INTERVAL_SEC"
 fi
-MAX_DURATION_SEC="${MAX_DURATION_SEC:-21500}"   # ~5h58m (just under 6h)
+MAX_DURATION_SEC="${MAX_DURATION_SEC:-0}"      # 0/none/unlimited = 不自动停止
+case "$MAX_DURATION_SEC" in
+    0|none|None|unlimited|inf|infinite) MAX_DURATION_SEC="" ;;
+esac
 QQ_EMAIL="${QQ_EMAIL:-}"
 QQ_SMTP_AUTH_CODE="${QQ_SMTP_AUTH_CODE:-}"
 
 # Beijing time helper
 beijing_ts() {
     TZ='Asia/Shanghai' date '+%Y-%m-%d %H:%M:%S CST'
+}
+
+# Remaining seconds until the time limit, or "inf" when there is no limit at all
+remaining_sec() {
+    if [ -z "$MAX_DURATION_SEC" ]; then
+        echo "inf"
+    else
+        echo $(( MAX_DURATION_SEC - ($(date +%s) - START_TIME) ))
+    fi
 }
 
 # --- Load tokens (reused from run-all.sh) ---
@@ -144,16 +159,20 @@ ROUND=1
 while true; do
     NOW=$(date +%s)
     ELAPSED=$((NOW - START_TIME))
-    REMAINING=$((MAX_DURATION_SEC - ELAPSED))
+    REMAINING=$(remaining_sec)
 
-    if [ "$REMAINING" -le 0 ]; then
+    if [ "$REMAINING" != "inf" ] && [ "$REMAINING" -le 0 ]; then
         echo "=== 达到时间上限，退出 ==="
         break
     fi
 
     echo "============================================="
     echo " 第 $ROUND 轮  |  $(beijing_ts)"
-    echo " 已用: ${ELAPSED}s  |  剩余: ~${REMAINING}s"
+    if [ "$REMAINING" = "inf" ]; then
+        echo " 已用: ${ELAPSED}s  |  剩余: 无限"
+    else
+        echo " 已用: ${ELAPSED}s  |  剩余: ~${REMAINING}s"
+    fi
     echo "============================================="
 
     # Per-round tracking
@@ -168,7 +187,7 @@ while true; do
 
         # Check remaining time before each token
         NOW=$(date +%s)
-        if [ $((NOW - START_TIME)) -ge "$MAX_DURATION_SEC" ]; then
+        if [ -n "$MAX_DURATION_SEC" ] && [ $((NOW - START_TIME)) -ge "$MAX_DURATION_SEC" ]; then
             echo "已达时间上限，中途结束本轮。"
             break
         fi
@@ -277,9 +296,9 @@ $ROUND_SUMMARY
     # --- Sleep until next poll ---
     NOW=$(date +%s)
     ELAPSED=$((NOW - START_TIME))
-    REMAINING=$((MAX_DURATION_SEC - ELAPSED))
+    REMAINING=$(remaining_sec)
 
-    if [ "$REMAINING" -gt "$POLL_INTERVAL" ]; then
+    if [ "$REMAINING" = "inf" ] || [ "$REMAINING" -gt "$POLL_INTERVAL" ]; then
         echo ""
         echo "--- 下一轮在 ${POLL_INTERVAL}s 后（$((POLL_INTERVAL / 60)) 分钟）---"
         sleep "$POLL_INTERVAL"

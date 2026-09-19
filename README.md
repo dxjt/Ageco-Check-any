@@ -6,7 +6,7 @@
 
 | 工作流 | 触发方式 | 用途 |
 |---|---|---|
-| **Keepalive** (`keepalive.yml`) | 定时 + 手动 | 每日凌晨自动保活，每 50 分钟轮询一轮 |
+| **Keepalive** (`keepalive.yml`) | 定时 + 手动 | 自动保活，**默认不停止**（每段 ~5h50m 自动续跑下一段），每 50 分钟轮询一轮 |
 | **Keepalive Once** (`keepalive-once.yml`) | 手动 | 单次快速测活（只跑一轮） |
 | **Recovery Monitor** (`monitor-recovery.yml`) | 手动 | 每 30 分钟轮询，发现恢复立刻通知，全通且响应 <30s 自动退出 |
 
@@ -20,7 +20,7 @@ Anyrouter 的调度策略疑似为**账号级先来先用**。如果账号长时
 - 容器内部每 **50 分钟** 轮询一遍所有 token（避免 6 小时限制）
 - 每个 token 发送一条随机轻量探针（默认 20 条，见 `scripts/prompts.txt`）：默认用 `curl` 直连 `/v1/responses`，Claude 模型则用 `claude -p` 模式
 - 请求间隔可自定义（Actions 的 `interval` 输入 / `REQUEST_INTERVAL_SEC`），见「Prompt 池与请求间隔」
-- 在接近 6 小时限制时自动发送汇总报告邮件
+- 每段跑到 ~5 小时 50 分自动发送汇总报告邮件，然后**自动续跑下一段**（GitHub 单个 job 硬上限 6 小时，见「不会停止（自动续跑）」）
 - 可选通过 QQ 邮箱接收最终报告
 
 ### Recovery Monitor（恢复监控）
@@ -63,7 +63,7 @@ sk-ant-xxx333
 | 保活（单次） | Actions → Anyrouter Keepalive (Once) → Run workflow |
 | 恢复监控 | Actions → Anyrouter Recovery Monitor → Run workflow |
 
-三个工作流在手动触发时都可自定义 `base_url`、`model`、`protocol`、`interval`（请求间隔秒数）和 `install_cli`（跑之前装不装 CLI），默认使用 `gpt-6-astra`（Responses 协议）。
+三个工作流在手动触发时都可自定义 `base_url`、`model`、`protocol`、`interval`（请求间隔秒数）、`install_cli`（跑之前装不装 CLI）和 `auto_continue`（是否自动续跑），默认使用 `gpt-6-astra`（Responses 协议）。Keepalive 默认不停止：`auto_continue=true`，每段长度由 `max_duration_sec` 决定（默认 21000 ≈ 5h50m）。
 
 ## 模型与协议
 
@@ -173,7 +173,17 @@ REQUEST_INTERVAL_SEC=5 SLOW_INTERVAL_MIN=0 bash scripts/run-all.sh
 # 只对 Keepalive / Keepalive Once 生效；Recovery Monitor 全通即退出
 ```
 
-间隔越小请求越密集（例如 10 秒 + 6 小时容器 ≈ 2000 次请求），可能触发中转站限流或消耗额度；建议配合 `--once` 或较小的 `MAX_DURATION_SEC` 使用。
+### 不会停止（自动续跑）
+
+GitHub Actions 单个 job 最多跑 6 小时，这条限制只能绕，不能取消，所以「不停止」是这么实现的：
+
+- 脚本自己**不再有 5 小时 58 分的自杀逻辑**：`MAX_DURATION_SEC` 默认 `0` = 不设上限，本地/自建 runner 可以一直跑，日志显示 `剩余: 无限`
+- Actions 里由工作流给 `max_duration_sec`（默认 `21000` ≈ 5h50m）：每段跑到 5h50m 就发完报告正常收尾，紧接着用 `GITHUB_TOKEN` 调 workflow_dispatch **自动重新触发同一个工作流**，下一段接着跑——从外面看就是 24 小时不停
+- 关掉续跑：触发时把 `auto_continue` 填 `false`，这一段跑完就真的结束（Keepalive 默认 `true`；Keepalive Once / Recovery Monitor 默认 `false`）
+- `max_duration_sec` 填 `0` 也能「本段不设上限」，但 GitHub 会在 6 小时整硬杀 job，被杀掉的 job 不会再续跑（不推荐）
+- ⚠️ **私有仓库的 Actions 分钟数**：私有仓库按套餐计分钟数（Free 套餐 2000 分钟/月），24/7 续跑约 43,200 分钟/月，很快就会超额；public 仓库不限分钟数
+
+间隔越小请求越密集（例如 10 秒 + 6 小时容器 ≈ 2000 次请求），可能触发中转站限流或消耗额度；建议配合 `--once` 或告警阈值使用。
 
 
 ## 本地运行
@@ -269,7 +279,7 @@ bats tests/
 | UTC | 18:00 |
 | 北京时间 (UTC+8) | 02:00 |
 
-容器启动后内部每 50 分钟轮询一轮，约运行 5 小时 58 分钟后自动退出（配合 GitHub Actions 的 6 小时超时限制）。
+容器启动后内部每 50 分钟轮询一轮；每段约跑 5 小时 50 分钟，发完报告后自动续跑下一段（GitHub 单个 job 6 小时硬上限，见「不会停止（自动续跑）」）。
 
 ### Recovery Monitor
 
@@ -288,6 +298,7 @@ bats tests/
 │   ├── install-cli.sh             # 安装 Claude Code CLI / Codex CLI（已装则跳过）
 │   ├── run-all.sh                 # 批量运行器：50 分钟轮询
 │   ├── monitor-recovery.sh        # 恢复监控：30 分钟轮询 + 早期退出
+│   ├── continue-workflow.sh       # 续跑：用 GITHUB_TOKEN 重新触发工作流，实现不停止
 │   ├── prompts.txt                # 默认 prompt 池：20 条轻量探针
 │   └── prompts-engineering.txt    # 备用 prompt 池：65 条工程提问
 ├── tests/
@@ -312,3 +323,4 @@ bats tests/
   ```
 - **Prompt 池**：默认 20 条轻量探针（`scripts/prompts.txt`），每次随机选一条；工程提问池在 `scripts/prompts-engineering.txt`，用 `PROMPTS_FILE` 切换
 - **CLI 协议**：`anthropic` 走 Claude Code CLI、`codex` 走 Codex CLI；不确定装没装就先跑 `bash scripts/install-cli.sh codex`（已装会跳过）
+- **Actions 分钟数**：不停止 = 24/7 占用 runner。私有仓库按套餐计分钟数（Free 套餐 2000 分钟/月），24/7 约 43,200 分钟/月，很快会超额；public 仓库不限。想省额度就把 `auto_continue` 填 `false`

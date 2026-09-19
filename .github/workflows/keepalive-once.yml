@@ -41,6 +41,20 @@ on:
         required: false
         default: ''
 
+      max_duration_sec:
+        description: '单段运行的秒数上限（默认 21000 ≈ 5h50m：留出时间发报告并自动续跑；0 = 本段不设上限，但会被 GitHub 6 小时硬杀且不会再续跑）'
+        required: false
+        default: '21000'
+
+      auto_continue:
+        description: '本段跑完自动重新触发工作流，实现「不会停止」（true/false）；单次测活默认不续跑'
+        required: false
+        default: 'false'
+
+permissions:
+  actions: write
+  contents: read
+
 jobs:
   keepalive-once:
     runs-on: ubuntu-latest
@@ -77,3 +91,10 @@ jobs:
           QQ_SMTP_AUTH_CODE: ${{ secrets.QQ_SMTP_AUTH_CODE }}
           CI: "true"
         run: bash scripts/run-all.sh --once
+
+      - name: 续跑下一段（默认关闭）
+        if: ${{ success() && (github.event.inputs.auto_continue || 'false') == 'true' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          WORKFLOW_INPUTS_JSON: ${{ toJSON(github.event.inputs) }}
+        run: bash scripts/continue-workflow.sh keepalive-once.yml

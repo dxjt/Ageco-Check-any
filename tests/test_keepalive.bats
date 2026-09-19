@@ -411,6 +411,72 @@ MOCK
     [[ "$output" == *"FAILED (Codex CLI 报错: Reconnecting... 1/5"* ]]
 }
 
+@test "run-all.sh never stops on its own when MAX_DURATION_SEC=0" {
+    cat > "$TEST_DIR/mock_bin/curl" << 'MOCK'
+#!/usr/bin/env bash
+echo '{"id":"resp_forever","object":"response","status":"completed","output_text":"ok"}'
+MOCK
+    chmod +x "$TEST_DIR/mock_bin/curl"
+
+    export ANYROUTER_TOKENS="sk-testAAA"
+    run timeout 6 env REQUEST_INTERVAL_SEC=1 MAX_DURATION_SEC=0 bash scripts/run-all.sh
+    [ "$status" -eq 124 ]   # still looping when timeout killed it
+    [[ "$output" == *"剩余: 无限"* ]]
+    [[ "$output" != *"达到时间上限"* ]]
+    [[ "$output" != *"全部轮次完成"* ]]
+}
+
+@test "run-all.sh still stops when MAX_DURATION_SEC is set" {
+    cat > "$TEST_DIR/mock_bin/curl" << 'MOCK'
+#!/usr/bin/env bash
+echo '{"id":"resp_limited","object":"response","status":"completed","output_text":"ok"}'
+MOCK
+    chmod +x "$TEST_DIR/mock_bin/curl"
+
+    export ANYROUTER_TOKENS="sk-testAAA"
+    run env REQUEST_INTERVAL_SEC=1 MAX_DURATION_SEC=2 bash scripts/run-all.sh
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"达到时间上限"* ]]
+    [[ "$output" != *"剩余: 无限"* ]]
+}
+
+@test "monitor-recovery.sh never stops on its own when MAX_DURATION_SEC=0" {
+    cat > "$TEST_DIR/mock_bin/curl" << 'MOCK'
+#!/usr/bin/env bash
+echo '{"error":{"message":"relay down"}}'
+MOCK
+    chmod +x "$TEST_DIR/mock_bin/curl"
+
+    export ANYROUTER_TOKENS="sk-testAAA"
+    run timeout 6 env REQUEST_INTERVAL_SEC=1 MAX_DURATION_SEC=0 bash scripts/monitor-recovery.sh
+    [ "$status" -eq 124 ]
+    [[ "$output" == *"剩余: 无限"* ]]
+}
+
+@test "continue-workflow.sh skips the re-dispatch outside GitHub Actions" {
+    run env -u GH_TOKEN -u GITHUB_TOKEN -u GITHUB_REPOSITORY bash scripts/continue-workflow.sh keepalive.yml
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"跳过续跑"* ]]
+}
+
+@test "continue-workflow.sh re-dispatches the workflow with the same inputs" {
+    cat > "$TEST_DIR/mock_bin/curl" << 'MOCK'
+#!/usr/bin/env bash
+printf '%s\n' "$@" > "$TEST_DIR/curl_args.txt"
+exit 0
+MOCK
+    chmod +x "$TEST_DIR/mock_bin/curl"
+
+    run env GH_TOKEN=faketoken GITHUB_REPOSITORY=owner/repo GITHUB_REF_NAME=main \
+        WORKFLOW_INPUTS_JSON='{"model":"gpt-6-astra","auto_continue":"true"}' \
+        bash scripts/continue-workflow.sh keepalive.yml
+    [ "$status" -eq 0 ]
+    grep -q 'actions/workflows/keepalive.yml/dispatches' "$TEST_DIR/curl_args.txt"
+    grep -q '"ref":"main"' "$TEST_DIR/curl_args.txt"
+    grep -q 'auto_continue' "$TEST_DIR/curl_args.txt"
+    [[ "$output" == *"已触发下一段运行"* ]]
+}
+
 @test "run-all.sh slows down to the keepalive pace after the first healthy answer" {
     cat > "$TEST_DIR/mock_bin/curl" << 'MOCK'
 #!/usr/bin/env bash

@@ -46,15 +46,29 @@ on:
         required: false
         default: ''
 
+      max_duration_sec:
+        description: '单段运行的秒数上限（默认 21000 ≈ 5h50m：留出时间发报告并自动续跑；0 = 本段不设上限，但会被 GitHub 6 小时硬杀且不会再续跑）'
+        required: false
+        default: '21000'
+
+      auto_continue:
+        description: '本段跑完自动重新触发工作流，实现「不会停止」（true/false）'
+        required: false
+        default: 'true'
+
 # Prevent concurrent runs stacking up
 concurrency:
   group: keepalive
   cancel-in-progress: false
 
+permissions:
+  actions: write
+  contents: read
+
 jobs:
   keepalive:
     runs-on: ubuntu-latest
-    timeout-minutes: 360  # 6h max, our script self-terminates at ~5h58m
+    timeout-minutes: 360  # GitHub 单 job 硬上限 6h；脚本在 5h50m 收尾并发报告，然后自动续跑
     steps:
       - name: 检出仓库
         uses: actions/checkout@v4
@@ -86,4 +100,12 @@ jobs:
           QQ_EMAIL: ${{ secrets.QQ_EMAIL }}
           QQ_SMTP_AUTH_CODE: ${{ secrets.QQ_SMTP_AUTH_CODE }}
           CI: "true"
+          MAX_DURATION_SEC: ${{ github.event.inputs.max_duration_sec || '21000' }}
         run: bash scripts/run-all.sh
+
+      - name: 续跑下一段（不停止）
+        if: ${{ success() && (github.event.inputs.auto_continue || 'true') != 'false' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          WORKFLOW_INPUTS_JSON: ${{ toJSON(github.event.inputs) }}
+        run: bash scripts/continue-workflow.sh keepalive.yml
